@@ -77,24 +77,37 @@ export const Footer: React.FC<FooterProps> = ({ onOpenPass, onOpenBotInfo }) => 
             </h4>
 
             {/* Social Icon Buttons */}
-            <div className="flex items-center gap-2.5 mb-3">
+            <div className="flex flex-col gap-2.5">
               <a
-                href="https://t.me/AnimemUzBot"
+                href="https://t.me/animemuz_bot_org"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-10 h-10 rounded-xl bg-[#140b24] hover:bg-purple-900/60 border border-purple-800/40 flex items-center justify-center text-purple-300 hover:text-white transition-all shadow-md active:scale-95"
-                title="Telegram"
+                className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[#140b24] hover:bg-purple-900/60 border border-purple-800/40 text-purple-300 hover:text-white transition-all shadow-md group"
               >
-                <Send className="w-4 h-4 ml-0.5" />
+                <div className="w-7 h-7 rounded-lg bg-sky-500/20 flex items-center justify-center text-sky-400 group-hover:scale-110 transition-transform">
+                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-1.99 1.27-5.62 3.72-.53.36-1.01.54-1.44.53-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.25.38-.51 1.08-.78 4.23-1.84 7.05-3.05 8.46-3.63 4.03-1.68 4.87-1.97 5.41-1.98.12 0 .39.03.56.17.15.12.19.28.21.4-.01.06.01.24-.03.49z"/>
+                  </svg>
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-bold text-white">Telegram Bot</span>
+                  <span className="text-[10px] text-purple-300/70">@animemuz_bot_org</span>
+                </div>
               </a>
+
               <a
-                href="https://instagram.com"
+                href="https://instagram.com/animem_uz"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-10 h-10 rounded-xl bg-[#140b24] hover:bg-purple-900/60 border border-purple-800/40 flex items-center justify-center text-purple-300 hover:text-white transition-all shadow-md active:scale-95"
-                title="Instagram"
+                className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[#140b24] hover:bg-purple-900/60 border border-purple-800/40 text-purple-300 hover:text-white transition-all shadow-md group"
               >
-                <Instagram className="w-4 h-4" />
+                <div className="w-7 h-7 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-400 group-hover:scale-110 transition-transform">
+                  <Instagram className="w-4 h-4" />
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-bold text-white">Instagram</span>
+                  <span className="text-[10px] text-purple-300/70">@animem_uz</span>
+                </div>
               </a>
             </div>
 

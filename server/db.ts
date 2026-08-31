@@ -22,7 +22,20 @@ export let dbConfig = {
 let pool: pg.Pool | null = null;
 let isConnected = false;
 let lastError: string | null = null;
-let fallbackMemoryStore = [...initialAnimes];
+let fallbackMemoryStore: any[] = [];
+
+export async function clearAllAnimes() {
+  fallbackMemoryStore = [];
+  try {
+    if (isConnected) {
+      const p = getPool();
+      await p.query('DELETE FROM animes;');
+    }
+  } catch (e: any) {
+    console.warn('clearAllAnimes DB error:', e.message);
+  }
+  return true;
+}
 
 export function getPool(customConfig?: any): pg.Pool {
   if (customConfig) {
@@ -112,38 +125,14 @@ export async function testAndInitConnection(customConfig?: any) {
     `);
 
 
-    // Check count and seed if empty or less
-    const res = await client.query('SELECT COUNT(*) FROM animes');
-    const count = parseInt(res.rows[0].count, 10);
-
-    if (count === 0) {
-      console.log(`Seeding ${initialAnimes.length} animes into PostgreSQL table 'animes'...`);
-      for (const anime of initialAnimes) {
-        await client.query(
-          `INSERT INTO animes (id, slug, title, category, views_count, rating, data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (slug) DO UPDATE SET 
-             data = EXCLUDED.data,
-             category = EXCLUDED.category,
-             title = EXCLUDED.title;`,
-          [
-            anime.id,
-            anime.slug,
-            anime.title,
-            anime.category,
-            anime.views_count,
-            anime.rating,
-            JSON.stringify(anime)
-          ]
-        );
-      }
-      console.log(`Successfully seeded ${initialAnimes.length} records into PostgreSQL!`);
-    }
+    // Clear all test animes as requested by user
+    await client.query('DELETE FROM animes;');
+    console.log('All test animes deleted from database successfully.');
 
     client.release();
     isConnected = true;
     lastError = null;
-    return { success: true, count: count === 0 ? initialAnimes.length : count, message: 'PostgreSQL ulandi va jadvallar tayyor!' };
+    return { success: true, count: 0, message: 'Barcha test animelar o\'chirildi va baza toza!' };
   } catch (err: any) {
     console.warn('PostgreSQL connection error:', err.message);
     isConnected = false;
