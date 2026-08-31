@@ -1,9 +1,6 @@
 app = "animem-uz-bot"
 primary_region = "fra"
 
-[build]
-  dockerfile = "Dockerfile"
-
 [http_service]
   internal_port = 3000
   force_https = true
@@ -34,3 +31,4 @@ primary_region = "fra"
     grace_period = "5s"
     method = "GET"
     path = "/api/health"
+
