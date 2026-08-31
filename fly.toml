@@ -11,24 +11,3 @@ primary_region = "fra"
 
 [env]
   PORT = "3000"
-
-[[services]]
-  protocol = "tcp"
-  internal_port = 3000
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-  [services.concurrency]
-    type = "requests"
-    soft_limit = 200
-    hard_limit = 250
-  [[services.http_checks]]
-    interval = "10s"
-    timeout = "2s"
-    grace_period = "5s"
-    method = "GET"
-    path = "/api/health"
-
