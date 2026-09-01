@@ -13,7 +13,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   onSearch,
   onOpenSearchModal,
 }) => {
-  const mascotUrl = "https://api.animem.uz/api/images/1788106246084_u6dxgm7";
+  const mascotUrl = "https://pub-a106e00b56aa4c98ade06693352e0672.r2.dev/download%20(1).png";
 
   return (
     <div className="relative flex w-full h-72 sm:h-80 lg:h-96 justify-between items-end select-none overflow-hidden rounded-3xl border border-purple-500/20 bg-[#120a22]/70 backdrop-blur-xl shadow-2xl shadow-purple-950/50 my-4 sm:my-6">

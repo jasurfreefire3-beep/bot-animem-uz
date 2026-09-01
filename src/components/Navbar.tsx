@@ -72,7 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-500 p-0.5 shadow-md shadow-purple-500/20 shrink-0">
               <div className="w-full h-full bg-[#0d071a] rounded-[10px] flex items-center justify-center overflow-hidden">
                 <img
-                  src="https://api.animem.uz/api/images/1788192062296_ypg1z1j"
+                  src="https://pub-a106e00b56aa4c98ade06693352e0672.r2.dev/watermarked_img_14938170737257306972.jpg"
                   alt="Animem Uz Bot"
                   className="w-full h-full object-contain p-0.5"
                 />
