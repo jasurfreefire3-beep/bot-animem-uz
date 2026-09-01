@@ -2,7 +2,7 @@
 # Supports both Dockerfile build and buildpack/Node.js direct build
 processes:
   web:
-    command: node dist/server.cjs
+    command: npm start
     port: 3000
     healthCheck:
       path: /api/health
