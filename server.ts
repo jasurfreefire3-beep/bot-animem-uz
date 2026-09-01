@@ -382,7 +382,7 @@ async function startServer() {
 
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), 'build_output');
     const indexHtmlPath = path.join(distPath, 'index.html');
     app.use(express.static(distPath, { index: false }));
 

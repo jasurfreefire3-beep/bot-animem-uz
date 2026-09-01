@@ -5,7 +5,7 @@ description = "Anime Backend App"
 
 [[module]]
 name = "server"
-source = "dist/server.cjs"
+source = "build_output/server.cjs"
 
 [[command]]
 name = "run"

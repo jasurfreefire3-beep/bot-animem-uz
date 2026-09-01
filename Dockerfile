@@ -17,8 +17,8 @@ ENV NODE_ENV=production
 COPY package.json ./
 RUN npm install --production
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/build_output ./build_output
 COPY --from=builder /app/public ./public
 
 EXPOSE 3000
-CMD ["node", "dist/server.cjs"]
+CMD ["node", "build_output/server.cjs"]
