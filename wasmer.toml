@@ -2,21 +2,19 @@
 name = "bot-animem-uz"
 version = "0.1.0"
 description = "Anime Backend App"
-license = "MIT"
 
 [[module]]
 name = "server"
 source = "dist/server.cjs"
-abi = "wasi"
 
 [[command]]
-name = "start"
+name = "run"
 module = "server"
-runner = "https://webc.org/wasmer/js"
+runner = "wasmer/js"
 
 [app]
 public = true
 
 [[app.routes]]
 path = "/*"
-backend = "command:start"
+backend = "command:run"
