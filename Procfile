@@ -1,1 +1,1 @@
-web: node build_output/server.cjs
+web: node dist/server.cjs

@@ -1,20 +1,22 @@
 [package]
 name = "bot-animem-uz"
 version = "0.1.0"
-description = "Anime Backend App"
+description = "Animem Uz Web App"
 
-[[module]]
-name = "server"
-source = "build_output/server.cjs"
+[dependencies]
+"wasmer/static-web-server" = "^1"
+
+[fs]
+public = "dist"
 
 [[command]]
-name = "run"
-module = "server"
-runner = "wasmer/js"
+name = "webserver"
+module = "wasmer/static-web-server:webserver"
+runner = "wasi"
 
 [app]
 public = true
 
 [[app.routes]]
 path = "/*"
-backend = "command:run"
+backend = "command:webserver"
