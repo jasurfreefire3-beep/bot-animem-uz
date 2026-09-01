@@ -11,6 +11,7 @@ import {
   removeMandatoryChannel
 } from './db.js';
 import { setBotUsername, enrichAnimeWithTelegram, getBotUsername } from './telegram.js';
+import { E } from './emojis.js';
 
 
 export const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8838137319:AAGTt2MAa-Msw62XHNU0GmUMXWwFHMfqtnA';
@@ -105,15 +106,15 @@ async function checkSubscription(userId: number): Promise<{ ok: boolean; unsubsc
 }
 
 async function sendSubscriptionPrompt(chatId: number, unsubscribed: any[]) {
-  let text = `👋 <b>Assalomu alaykum!</b>\n\nBotdan foydalanish uchun quyidagi kanallarimizga obuna bo'lishingiz shart:\n\n`;
+  let text = `${E.WAVE_MONO} <b>Assalomu alaykum!</b>\n\nBotdan foydalanish uchun quyidagi kanallarimizga obuna bo'lishingiz shart:\n\n`;
   const buttons = [];
   
   for (const ch of unsubscribed) {
-    text += `• <b>${escapeHtml(ch.title || ch.username)}</b>\n`;
+    text += `• ${E.ANNOUNCE_MONO} <b>${escapeHtml(ch.title || ch.username)}</b>\n`;
     buttons.push([{ text: `➕ Obuna bo'lish (${ch.title})`, url: `https://t.me/${ch.username.replace('@', '')}` }]);
   }
   
-  text += `\n<i>Animem Pass (VIP) egalari uchun majburiy obuna yo'q!</i>\n\nObuna bo'lib "✅ Tekshirish" tugmasini bosing:`;
+  text += `\n<i>${E.VERIFIED_MONO} Animem Pass (VIP) egalari uchun majburiy obuna yo'q!</i>\n\nObuna bo'lib "Tekshirish" tugmasini bosing:`;
   buttons.push([{ text: '✅ Tekshirish', callback_data: 'check_sub' }]);
   buttons.push([{ text: '🎫 Animem Pass olish', callback_data: 'btn_pass' }]);
 
@@ -409,11 +410,11 @@ async function getStartCaption() {
     }
   } catch(e) {}
   
-  return `<b>( ˶ˆ꒳ˆ˵ ) Animem ga hush kelibsiz ✨</b>
+  return `<b>( ˶ˆ꒳ˆ˵ ) Animem ga hush kelibsiz ${E.NEW}</b>
 
-<blockquote>📺 ${onlineCount} ta foydalanuvchi anime tomosha qilmoqda ❞</blockquote>
-<blockquote>👁️ Eng ko'p tomosha qilinayotgan anime - <b>${mostViewed}</b> ❞</blockquote>
-<blockquote>${passCount > 0 ? passCount + ' foydalanuvchida' : 'Hech kimda hozircha'} 🎫 <b>Animem Pass</b> obunasi mavjud. Siz ham hoziroq xarid qiling ! ❞</blockquote>`;
+<blockquote>${E.VIDEO_MONO} ${onlineCount} ta foydalanuvchi anime tomosha qilmoqda ❞</blockquote>
+<blockquote>${E.EYE_VIEWS_MONO} Eng ko'p tomosha qilinayotgan anime - <b>${mostViewed}</b> ❞</blockquote>
+<blockquote>${passCount > 0 ? passCount + ' foydalanuvchida' : 'Hech kimda hozircha'} ${E.CARD_MONO} <b>Animem Pass</b> obunasi mavjud. Siz ham hoziroq xarid qiling ! ❞</blockquote>`;
 }
 
 export async function sendStartMessage(chatId: number | string, firstName = 'Foydalanuvchi') {
@@ -453,7 +454,7 @@ export async function sendAdminPanel(chatId: number | string) {
   if (!isAdmin(chatId)) {
     await telegramApiCall('sendMessage', {
       chat_id: chatId,
-      text: `⛔ <b>Ruxsat berilmadi!</b>\n\nUshbu panel faqat bot adminlari uchun mo'ljallangan.\nSizning ID: <code>${chatId}</code>`,
+      text: `${E.FORBIDDEN} <b>Ruxsat berilmadi!</b>\n\nUshbu panel faqat bot adminlari uchun mo'ljallangan.\nSizning ID: <code>${chatId}</code>`,
       parse_mode: 'HTML',
     });
     return;
@@ -462,13 +463,13 @@ export async function sendAdminPanel(chatId: number | string) {
   const animes = await getAllAnimes();
   const totalViews = animes.reduce((acc, a) => acc + (a.views_count || 0), 0);
 
-  const text = `👑 <b>Animem Uz • Boshqaruv Paneli (Admin)</b>
+  const text = `${E.VERIFIED_MONO} <b>Animem Uz • Boshqaruv Paneli (Admin)</b>
 
-📊 <b>Hozirgi holat:</b>
-• 🎬 Jami animelar soni: <b>${animes.length} ta</b>
-• 👁️ Jami ko'rishlar: <b>${formatViews(totalViews)}</b>
-• ⚡ Sayt & Bot sinxronizatsiyasi: <b>Faol 🟢</b>
-• 🛡️ Admin ID: <code>${chatId}</code> ✅
+${E.CHART} <b>Hozirgi holat:</b>
+• ${E.VIDEO_MONO} Jami animelar soni: <b>${animes.length} ta</b>
+• ${E.EYE_VIEWS_MONO} Jami ko'rishlar: <b>${formatViews(totalViews)}</b>
+• ${E.LIVE_ANIM} Sayt & Bot sinxronizatsiyasi: <b>Faol ${E.CHECK}</b>
+• ${E.KEY_MONO} Admin ID: <code>${chatId}</code> ${E.CHECK}
 
 Quyidagi tugmalardan birini tanlang:`;
 
@@ -676,16 +677,16 @@ async function handleCallbackQuery(callbackQuery: any) {
     const daysLeft = hasPass ? Math.ceil((passExp - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
 
     const statusText = hasPass 
-      ? `VIP Animem Pass (Faol 🟢)\n   ⏳ Muddati: <b>${expDateStr}</b> (${daysLeft} kun qoldi)` 
-      : `Oddiy a'zo (Animem Pass faol emas ❌)`;
+      ? `VIP Animem Pass (Faol ${E.CHECK})\n   ${E.LOADING} Muddati: <b>${expDateStr}</b> (${daysLeft} kun qoldi)` 
+      : `Oddiy a'zo (Animem Pass faol emas ${E.CROSS})`;
 
-    const profileText = `<b>👤 Foydalanuvchi Profili</b>
+    const profileText = `<b>${E.PROFILE_MONO} Foydalanuvchi Profili</b>
 
 🆔 <b>ID:</b> <code>${from.id}</code>
-✨ <b>Ism:</b> ${from.first_name || 'Noma\'lum'} ${from.last_name || ''}
-📱 <b>Username:</b> @${from.username || 'mavjud emas'}
-🎫 <b>Status:</b> ${statusText}
-🎬 <b>Ko'rilgan animelar:</b> 0 ta
+${E.STAR} <b>Ism:</b> ${from.first_name || 'Noma\'lum'} ${from.last_name || ''}
+${E.TG_MONO} <b>Username:</b> @${from.username || 'mavjud emas'}
+${E.CARD_MONO} <b>Status:</b> ${statusText}
+${E.VIDEO_MONO} <b>Ko'rilgan animelar:</b> 0 ta
 
 <i>${hasPass ? 'Sizda barcha premium imtiyozlar faol!' : 'Animem Pass xarid qilib barcha cheklovlarni olib tashlang!'}</i>`;
 
@@ -714,19 +715,19 @@ async function handleCallbackQuery(callbackQuery: any) {
     }
   } else if (data === 'admin_channels') {
     const channels = await getMandatoryChannels();
-    let text = `📢 <b>Majburiy obuna sozlamalari</b>\n\n`;
+    let text = `${E.ANNOUNCE} <b>Majburiy obuna sozlamalari</b>\n\n`;
     if (channels.length === 0) {
       text += `<i>Hozircha majburiy kanallar yo'q.</i>`;
     } else {
       for (let i = 0; i < channels.length; i++) {
         const c = channels[i];
         const status = await checkBotIsAdmin(c.username);
-        const statusIcon = status.isAdmin ? '✅ Admin' : '❌ Admin emas';
+        const statusIcon = status.isAdmin ? `${E.CHECK} Admin` : `${E.CROSS} Admin emas`;
         text += `${i + 1}. <b>${c.title}</b> (${c.username})\n   ┗ Holati: <i>${statusIcon}</i>\n`;
       }
     }
     
-    text += `\n⚠️ <i>Bot ushbu kanallarda admin bo'lishi shart, aks holda a'zolikni tekshira olmaydi!</i>`;
+    text += `\n${E.WARN_YELLOW} <i>Bot ushbu kanallarda admin bo'lishi shart, aks holda a'zolikni tekshira olmaydi!</i>`;
     
     const buttons = [
       [{ text: '🔄 Yangilash', callback_data: 'admin_channels' }],
@@ -742,7 +743,7 @@ async function handleCallbackQuery(callbackQuery: any) {
     await editOrSendMessage(chatId, messageId, text, { inline_keyboard: buttons });
   } else if (data === 'admin_add_channel') {
     channelAddSessions.set(chatId, { step: 'username' });
-    await editOrSendMessage(chatId, messageId, `📝 <b>Kanal yoki guruh username'ini yuboring:</b>\n\nMasalan: <code>@kanalingiz</code> yoki <code>kanalingiz</code>`, {
+    await editOrSendMessage(chatId, messageId, `${E.PENCIL_WRITE} <b>Kanal yoki guruh username'ini yuboring:</b>\n\nMasalan: <code>@kanalingiz</code> yoki <code>kanalingiz</code>`, {
       inline_keyboard: [[{ text: '❌ Bekor qilish', callback_data: 'admin_channels' }]]
     });
   } else if (data.startsWith('admin_del_channel_')) {
@@ -751,19 +752,19 @@ async function handleCallbackQuery(callbackQuery: any) {
     await telegramApiCall('answerCallbackQuery', { callback_query_id: id, text: '✅ Kanal o\'chirildi!' });
     
     const channels = await getMandatoryChannels();
-    let text = `📢 <b>Majburiy obuna sozlamalari</b>\n\n`;
+    let text = `${E.ANNOUNCE} <b>Majburiy obuna sozlamalari</b>\n\n`;
     if (channels.length === 0) {
       text += `<i>Hozircha majburiy kanallar yo'q.</i>`;
     } else {
       for (let i = 0; i < channels.length; i++) {
         const c = channels[i];
         const status = await checkBotIsAdmin(c.username);
-        const statusIcon = status.isAdmin ? '✅ Admin' : '❌ Admin emas';
+        const statusIcon = status.isAdmin ? `${E.CHECK} Admin` : `${E.CROSS} Admin emas`;
         text += `${i + 1}. <b>${c.title}</b> (${c.username})\n   ┗ Holati: <i>${statusIcon}</i>\n`;
       }
     }
     
-    text += `\n⚠️ <i>Bot ushbu kanallarda admin bo'lishi shart, aks holda a'zolikni tekshira olmaydi!</i>`;
+    text += `\n${E.WARN_YELLOW} <i>Bot ushbu kanallarda admin bo'lishi shart, aks holda a'zolikni tekshira olmaydi!</i>`;
     
     const buttons = [
       [{ text: '🔄 Yangilash', callback_data: 'admin_channels' }],
@@ -776,14 +777,14 @@ async function handleCallbackQuery(callbackQuery: any) {
     
     await editOrSendMessage(chatId, messageId, text, { inline_keyboard: buttons });
   } else if (data === 'btn_pass') {
-    const passText = `<b>🎫 Animem Pass Premium Obunasi</b>
+    const passText = `<b>${E.CARD_MONO} Animem Pass Premium Obunasi</b>
 
 Animem Pass bilan quyidagi imtiyozlarga ega bo'lasiz:
-• 🚫 <b>Mutlaqo reklamasiz</b> tomosha qilish
-• ⚡ <b>1080p Full HD</b> eng yuqori sifat
-• 🕒 Qismlarni <b>1 kun oldin</b> tomosha qilish
-• 📸 <b>Rasm orqali qidirish</b> va 🔀 <b>Xronologiya</b> bo'limlari
-• 🚀 Cheksiz tezlikda yuklab olish
+• ${E.FORBIDDEN} <b>Mutlaqo reklamasiz</b> tomosha qilish
+• ${E.FIRE} <b>1080p Full HD</b> eng yuqori sifat
+• ${E.SOON} Qismlarni <b>1 kun oldin</b> tomosha qilish
+• ${E.IMAGE_MONO} <b>Rasm orqali qidirish</b> va ${E.SWITCH_ANIM} <b>Xronologiya</b> bo'limlari
+• ${E.ARROW_UP} Cheksiz tezlikda yuklab olish
 
 <b>Quyidagi tariflardan birini tanlang va tezkor to'lovni amalga oshiring:</b>`;
 
@@ -810,12 +811,12 @@ Animem Pass bilan quyidagi imtiyozlarga ega bo'lasiz:
 
     const invoice = await createTezcheckInvoice(amount, chatId);
     if (invoice && invoice.ok && invoice.pay_url && invoice.order_id) {
-      const payText = `✨ <b>${title} uchun to'lov yaratildi!</b>
+      const payText = `${E.NEW} <b>${title} uchun to'lov yaratildi!</b>
 
-💰 <b>Summa:</b> ${amount.toLocaleString()} so'm
-🆔 <b>Buyurtma ID:</b> #${invoice.order_id}
+${E.WALLET_MONO} <b>Summa:</b> ${amount.toLocaleString()} so'm
+${E.HASHTAG_MONO} <b>Buyurtma ID:</b> #${invoice.order_id}
 
-Quyidagi <b>"💳 To'lov qilish (Tezcheck)"</b> tugmasini bosib Tezcheck orqali to'lovni amalga oshiring. To'lov yakunlangach <b>"🔄 To'lovni tekshirish"</b> tugmasini bosing va Pass avtomatik faollashadi!`;
+Quyidagi <b>"To'lov qilish (Tezcheck)"</b> tugmasini bosib Tezcheck orqali to'lovni amalga oshiring. To'lov yakunlangach <b>"To'lovni tekshirish"</b> tugmasini bosing va Pass avtomatik faollashadi!`;
 
       await editOrSendMessage(chatId, messageId, payText, {
         inline_keyboard: [
@@ -825,7 +826,7 @@ Quyidagi <b>"💳 To'lov qilish (Tezcheck)"</b> tugmasini bosib Tezcheck orqali 
         ],
       });
     } else {
-      await editOrSendMessage(chatId, messageId, `⚠️ To'lov yaratishda xatolik yuz berdi (${invoice?.error || 'Server javobsiz'}). Iltimos keyinroq urinib ko'ring.`, {
+      await editOrSendMessage(chatId, messageId, `${E.WARN_YELLOW} To'lov yaratishda xatolik yuz berdi (${invoice?.error || 'Server javobsiz'}). Iltimos keyinroq urinib ko'ring.`, {
         inline_keyboard: [[{ text: '◀️ Orqaga', callback_data: 'btn_pass', style: 'danger' }]],
       });
     }
@@ -843,16 +844,16 @@ Quyidagi <b>"💳 To'lov qilish (Tezcheck)"</b> tugmasini bosib Tezcheck orqali 
       const newExp = await setUserPassDb(chatId, days, from.first_name, from.username);
       const expDateStr = new Date(newExp).toLocaleDateString('uz-UZ');
 
-      const successText = `🎉 <b>Tabriklaymiz! To'lov muvaffaqiyatli qabul qilindi!</b>
+      const successText = `${E.NEW} <b>Tabriklaymiz! To'lov muvaffaqiyatli qabul qilindi!</b>
 
-🎫 <b>Sizga Animem Pass avtomatik faollashtirildi!</b>
-⏳ <b>Amal qilish muddati:</b> ${expDateStr} gacha (${days} kun)
+${E.CARD_MONO} <b>Sizga Animem Pass avtomatik faollashtirildi!</b>
+${E.CALENDAR} <b>Amal qilish muddati:</b> ${expDateStr} gacha (${days} kun)
 
-🚀 <b>Endi barcha imtiyozlar siz uchun ochiq:</b>
-• 🎯 <b>Tavsiyalar</b> bo'limi
-• 🔀 <b>Xronologiya</b> bo'limi
-• 📸 <b>Rasm orqali qidiruv</b>
-• 🚫 Mutlaqo reklamasiz va 1080p HD sifatda zavqlaning!`;
+${E.ARROW_UP} <b>Endi barcha imtiyozlar siz uchun ochiq:</b>
+• ${E.STAR} <b>Tavsiyalar</b> bo'limi
+• ${E.SWITCH_ANIM} <b>Xronologiya</b> bo'limi
+• ${E.IMAGE_MONO} <b>Rasm orqali qidiruv</b>
+• ${E.FORBIDDEN} Mutlaqo reklamasiz va 1080p HD sifatda zavqlaning!`;
 
       await editOrSendMessage(chatId, messageId, successText, {
         inline_keyboard: [
@@ -861,12 +862,12 @@ Quyidagi <b>"💳 To'lov qilish (Tezcheck)"</b> tugmasini bosib Tezcheck orqali 
       });
     } else {
       const statusUz = paymentStatus === 'pending' ? 'To\'lov kutilmoqda ⏳' : (paymentStatus ? paymentStatus : 'Kutilmoqda ⏳');
-      const waitText = `⏳ <b>To'lov hali amalga oshirilmagan!</b>
+      const waitText = `${E.LOADING} <b>To'lov hali amalga oshirilmagan!</b>
 
-📊 <b>Holati:</b> ${statusUz}
-🆔 <b>Buyurtma ID:</b> #${orderId}
+${E.CHART} <b>Holati:</b> ${statusUz}
+${E.HASHTAG_MONO} <b>Buyurtma ID:</b> #${orderId}
 
-Iltimos, Tezcheck havolasi orqali to'lovni amalga oshiring va so'ng <b>"🔄 To'lovni tekshirish"</b> tugmasini bosing. To'lov tasdiqlangach Animem Pass bir zumda faollashadi!`;
+Iltimos, Tezcheck havolasi orqali to'lovni amalga oshiring va so'ng <b>"To'lovni tekshirish"</b> tugmasini bosing. To'lov tasdiqlangach Animem Pass bir zumda faollashadi!`;
 
       await editOrSendMessage(chatId, messageId, waitText, {
         inline_keyboard: [
@@ -876,13 +877,13 @@ Iltimos, Tezcheck havolasi orqali to'lovni amalga oshiring va so'ng <b>"🔄 To'
       });
     }
   } else if (data === 'btn_order') {
-    const orderText = `<b>✉️ Anime Buyurtma Qilish</b>
+    const orderText = `<b>${E.LETTER_MONO} Anime Buyurtma Qilish</b>
 
 Siz qidirgan anime botimizda yoki saytimizda topilmadimi?
 
 Quyidagi tugma orqali adminimizga yozing va biz tez orada ushbu animeni o'zbek tilida yuqori sifatda joylaymiz!
 
-<b>Rasmiy kanalimiz:</b> <a href="https://t.me/animemuz_bot_org">Animem Uz Bot | Official</a>`;
+${E.TG_MONO} <b>Rasmiy kanalimiz:</b> <a href="https://t.me/animemuz_bot_org">Animem Uz Bot | Official</a>`;
 
     await editOrSendMessage(chatId, messageId, orderText, {
       inline_keyboard: [
@@ -904,15 +905,15 @@ Quyidagi tugma orqali adminimizga yozing va biz tez orada ushbu animeni o'zbek t
           inline_keyboard: [[{ text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' }]],
         });
       } else if (data === 'btn_locked_image') {
-        await editOrSendMessage(chatId, messageId, `📸 <b>Rasm orqali qidiruv</b>\n\nIstalgan anime kadrini (skrinshotni) menga yuboring va men qaysi animedan olinganini topib beraman!`, {
+        await editOrSendMessage(chatId, messageId, `${E.IMAGE_MONO} <b>Rasm orqali qidiruv</b>\n\nIstalgan anime kadrini (skrinshotni) menga yuboring va men qaysi animedan olinganini topib beraman!`, {
           inline_keyboard: [[{ text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' }]],
         });
       }
     } else {
       let feature = 'Ushbu bo\'lim';
-      if (data === 'btn_locked_recommend') feature = '🎯 Tavsiyalar';
-      if (data === 'btn_locked_chrono') feature = '🔀 Xronologiya';
-      if (data === 'btn_locked_image') feature = '📸 Rasm orqali qidiruv';
+      if (data === 'btn_locked_recommend') feature = 'Tavsiyalar';
+      if (data === 'btn_locked_chrono') feature = 'Xronologiya';
+      if (data === 'btn_locked_image') feature = 'Rasm orqali qidiruv';
       await telegramApiCall('answerCallbackQuery', {
         callback_query_id: id,
         text: `🔒 ${feature} ishlamaydi. Undan foydalanish uchun Animem Pass sotib oling!`,
@@ -920,13 +921,13 @@ Quyidagi tugma orqali adminimizga yozing va biz tez orada ushbu animeni o'zbek t
       });
     }
   } else if (data === 'btn_help') {
-    const helpText = `<b>💬 Yordam va Qo'llab-quvvatlash</b>
+    const helpText = `<b>${E.CHAT_SUPPORT_MONO} Yordam va Qo'llab-quvvatlash</b>
 
 Animem Uz Bot orqali sevimli animelaringizni o'zbek tilida sifatli tomosha qilishingiz mumkin!
 
-<b>Qidirish:</b> Qidiruv tugmasini bosing yoki anime nomini to'g'ridan-to'g'ri botga yozing.
-<b>Admin aloqa:</b> @Otaku9713
-<b>Rasmiy kanal:</b> <a href="https://t.me/animemuz_bot_org">Animem Uz Bot | Official</a>`;
+${E.SEARCH_MONO} <b>Qidirish:</b> Qidiruv tugmasini bosing yoki anime nomini to'g'ridan-to'g'ri botga yozing.
+${E.PROFILE_MONO} <b>Admin aloqa:</b> @Otaku9713
+${E.TG_MONO} <b>Rasmiy kanal:</b> <a href="https://t.me/animemuz_bot_org">Animem Uz Bot | Official</a>`;
 
     await editOrSendMessage(chatId, messageId, helpText, {
       inline_keyboard: [
@@ -979,7 +980,7 @@ Animem Uz Bot orqali sevimli animelaringizni o'zbek tilida sifatli tomosha qilis
       },
     });
 
-    await editOrSendMessage(chatId, messageId, `🎬 <b>Yangi anime qo'shish (1/7)</b>
+    await editOrSendMessage(chatId, messageId, `${E.VIDEO_REC_MONO} <b>Yangi anime qo'shish (1/7)</b>
 
 Iltimos, <b>Anime nomini</b> o'zbekcha yoki asosiy nomini yozing:
 <i>(Masalan: Qora Klever, Solo Leveling: Arise yoki Van Pis)</i>`, {
@@ -1014,13 +1015,13 @@ Iltimos, <b>Anime nomini</b> o'zbekcha yoki asosiy nomini yozing:
         }
 
         await updateAnime(targetAnime.id, targetAnime);
-        await editOrSendMessage(chatId, messageId, `✅ <b>Epizod muvaffaqiyatli biriktirildi!</b>
+        await editOrSendMessage(chatId, messageId, `${E.CHECK} <b>Epizod muvaffaqiyatli biriktirildi!</b>
 
-🎬 <b>Anime:</b> <b>${escapeHtml(targetAnime.title)}</b>
-📺 <b>Epizod:</b> <b>${epNum}-qism</b>
-⚡ <b>Fayl:</b> ${escapeHtml(pending.videoObj?.file_name || 'Video fayl')}
+${E.BOOKMARK} <b>Anime:</b> <b>${escapeHtml(targetAnime.title)}</b>
+${E.VIDEO_MONO} <b>Epizod:</b> <b>${epNum}-qism</b>
+${E.FIRE} <b>Fayl:</b> ${escapeHtml(pending.videoObj?.file_name || 'Video fayl')}
 
-✨ <i>Saytda va botda epizod darhol yuklab olish va ko'rish uchun faol!</i>`, {
+${E.NEW} <i>Saytda va botda epizod darhol yuklab olish va ko'rish uchun faol!</i>`, {
           inline_keyboard: [
             [{ text: `▶️ ${epNum}-qismni ko'rish`, callback_data: `anime_play_${targetAnime.id}_${epNum}` }],
             [{ text: '◀️ Admin menyusi', callback_data: 'admin_menu' }],
@@ -1029,7 +1030,7 @@ Iltimos, <b>Anime nomini</b> o'zbekcha yoki asosiy nomini yozing:
         return;
       }
     }
-    await editOrSendMessage(chatId, messageId, '⚠️ Video topilmadi yoki muddati o\'tdi. Iltimos, videoni qaytadan forward qiling.', {
+    await editOrSendMessage(chatId, messageId, `${E.WARN_YELLOW} Video topilmadi yoki muddati o'tdi. Iltimos, videoni qaytadan forward qiling.`, {
       inline_keyboard: [[{ text: '◀️ Admin menyusi', callback_data: 'admin_menu' }]],
     });
     return;
@@ -1062,14 +1063,14 @@ Iltimos, <b>Anime nomini</b> o'zbekcha yoki asosiy nomini yozing:
     } catch(e) {}
     if (!passCount) passCount = getPassCount();
 
-    await editOrSendMessage(chatId, messageId, `📊 <b>Sayt va Bot Statistikasi</b>
+    await editOrSendMessage(chatId, messageId, `${E.CHART} <b>Sayt va Bot Statistikasi</b>
 
 • Jami animelar: <b>${animes.length} ta</b>
 • Jami ko'rishlar soni: <b>${totalViews.toLocaleString()} marta</b>
 • Eng ko'p ko'rilgan: <b>${mostViewed}</b>
-• 🟢 Hozir Online (Botda): <b>${onlineNow} ta foydalanuvchi</b>
-• 🎫 Animem Pass egalari: <b>${passCount} kishi</b>
-• Telegram Bot: <b>@Animem_uz_bot 🟢 Online</b>`, {
+• ${E.CHECK} Hozir Online (Botda): <b>${onlineNow} ta foydalanuvchi</b>
+• ${E.CARD_MONO} Animem Pass egalari: <b>${passCount} kishi</b>
+• Telegram Bot: <b>@Animem_uz_bot ${E.CHECK} Online</b>`, {
       inline_keyboard: [
         [{ text: '◀️ Admin menyusi', callback_data: 'admin_menu' }],
       ],
@@ -1078,12 +1079,12 @@ Iltimos, <b>Anime nomini</b> o'zbekcha yoki asosiy nomini yozing:
     const animes = await getAllAnimes();
     const totalViews = animes.reduce((acc, a) => acc + (a.views_count || 0), 0);
 
-    const adminText = `👑 <b>Animem Uz • Boshqaruv Paneli (Admin)</b>
+    const adminText = `${E.VERIFIED_MONO} <b>Animem Uz • Boshqaruv Paneli (Admin)</b>
 
-📊 <b>Hozirgi holat:</b>
-• 🎬 Jami animelar soni: <b>${animes.length} ta</b>
-• 👁️ Jami ko'rishlar: <b>${formatViews(totalViews)}</b>
-• ⚡ Sayt & Bot sinxronizatsiyasi: <b>Faol 🟢</b>
+${E.CHART} <b>Hozirgi holat:</b>
+• ${E.VIDEO_MONO} Jami animelar soni: <b>${animes.length} ta</b>
+• ${E.EYE_VIEWS_MONO} Jami ko'rishlar: <b>${formatViews(totalViews)}</b>
+• ${E.LIVE_ANIM} Sayt & Bot sinxronizatsiyasi: <b>Faol ${E.CHECK}</b>
 
 Quyidagi tugmalardan birini tanlang:`;
 
@@ -1098,7 +1099,7 @@ Quyidagi tugmalardan birini tanlang:`;
       ],
     });
   } else if (data === 'admin_channel_guide') {
-    const guideText = `📁 <b>Epizod qo'shish va Forward yo'riqnomasi:</b>
+    const guideText = `${E.ARCHIVE_MONO} <b>Epizod qo'shish va Forward yo'riqnomasi:</b>
 
 Epizodlarni botga <b>2 xil oson usulda</b> qo'shishingiz mumkin:
 
@@ -1112,7 +1113,7 @@ Epizodlarni botga <b>2 xil oson usulda</b> qo'shishingiz mumkin:
 • Kanalga video yuklang va tagiga nomini yozing (masalan: <code>Naruto 1-qism</code> yoki <code>#naruto #ep1</code>).
 • Bot avtomatik ushlab olib tegishli animega ulab boradi!
 
-✨ <i>Qo'shilgan epizodlar bir zumda saytda ham, botda ham tomosha qilish uchun chiqadi.</i>`;
+${E.NEW} <i>Qo'shilgan epizodlar bir zumda saytda ham, botda ham tomosha qilish uchun chiqadi.</i>`;
 
     await editOrSendMessage(chatId, messageId, guideText, {
       inline_keyboard: [
@@ -1127,7 +1128,7 @@ Epizodlarni botga <b>2 xil oson usulda</b> qo'shishingiz mumkin:
     ]);
     buttons.push([{ text: '◀️ Admin menyusi', callback_data: 'admin_menu' }]);
 
-    await editOrSendMessage(chatId, messageId, '📋 <b>Eng so\'nggi qo\'shilgan animelar:</b>', {
+    await editOrSendMessage(chatId, messageId, `${E.LIST_MONO} <b>Eng so'nggi qo'shilgan animelar:</b>`, {
       inline_keyboard: buttons,
     });
   } else if (data.startsWith('anime_detail_')) {
@@ -1227,15 +1228,15 @@ function buildAnimeDetailsCard(anime: any) {
   const statusText = anime.status === 'Davom etmoqda' ? 'Davom etmoqda' : 'Tugal.';
   const ageText = anime.age_rating ? `${anime.age_rating} yoshdan kattalar uchun` : '13 yoshdan kattalar uchun';
 
-  const captionHtml = `📕 <b>${escapeHtml(anime.title)}</b>${anime.original_title ? ` / <i>${escapeHtml(anime.original_title)}</i>` : ''}
+  const captionHtml = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>${anime.original_title ? ` / <i>${escapeHtml(anime.original_title)}</i>` : ''}
 
-<blockquote>Animem: ⭐ ${ratingVal} ( ${viewsVal} ovoz )
-MyAnimeList: ⭐ ${ratingVal} ( ${viewsVal} ovoz ) ❞</blockquote>
+<blockquote>Animem: ${E.STAR} ${ratingVal} ( ${viewsVal} ovoz )
+MyAnimeList: ${E.STAR} ${ratingVal} ( ${viewsVal} ovoz ) ❞</blockquote>
 <blockquote>${escapeHtml(genresText)} ❞</blockquote>
-<blockquote>📺 ${episodesCount} / ${episodesCount} epizod ( Animem / Manba ) ❞</blockquote>
-<blockquote>📦 ${escapeHtml(durationText)} • 📁 ${escapeHtml(typeText)} • 🗓️ ${yearText} ❞</blockquote>
-<blockquote>🔘 ${escapeHtml(statusText)} / Tugal. ( Animem / Manba ) ❞</blockquote>
-<blockquote>⚠️ ${escapeHtml(ageText)} ❞</blockquote>`;
+<blockquote>${E.VIDEO_MONO} ${episodesCount} / ${episodesCount} epizod ( Animem / Manba ) ❞</blockquote>
+<blockquote>${E.ARCHIVE_MONO} ${escapeHtml(durationText)} • ${E.LIST_MONO} ${escapeHtml(typeText)} • ${E.CALENDAR} ${yearText} ❞</blockquote>
+<blockquote>${E.CHECK_MONO} ${escapeHtml(statusText)} / Tugal. ( Animem / Manba ) ❞</blockquote>
+<blockquote>${E.WARN_YELLOW} ${escapeHtml(ageText)} ❞</blockquote>`;
 
   const favoritesCount = Math.floor(anime.views_count ? anime.views_count / 35 : 496);
 
@@ -1311,11 +1312,11 @@ async function sendWatchEpisodesGrid(chatId: number | string, anime: any, page =
 
   const { count: watchersCount, text: watchersText } = getRealWatchers(anime.id);
 
-  const captionHtml = `📕 <b>${escapeHtml(anime.title)}</b>
-<blockquote>📺 Epizod ${startEp} / ${totalEpisodes} ❞</blockquote>
-<blockquote>🟢 Hozir tomosha qilmoqda (${watchersCount} kishi):
+  const captionHtml = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
+<blockquote>${E.VIDEO_MONO} Epizod ${startEp} / ${totalEpisodes} ❞</blockquote>
+<blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
 ${escapeHtml(watchersText)} ❞</blockquote>
-<i>Bundan avvalgi epizod o'chib ketdimi? 🎫 Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling </i>👇`;
+<i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling </i>👇`;
 
   // Build 3-column episode buttons grid
   const epRows: any[][] = [];
@@ -1400,13 +1401,13 @@ async function handlePlayEpisode(chatId: number | string, anime: any, ep: string
 
   if (hasPass) {
     // VIP USER: Sends downloadable video file message one-by-one!
-    const vipText = `💎 <b>Animem Pass VIP • ${escapeHtml(anime.title)} — ${ep}-qism</b>
+    const vipText = `${E.CARD_MONO} <b>Animem Pass VIP • ${escapeHtml(anime.title)} — ${ep}-qism</b>
 
-<blockquote>📺 Epizod: <b>${ep} / ${totalEpisodes}</b>
-⚡ Sifat: <b>1080p Full HD (Maksimal)</b>
-📥 Holati: <b>Yuklab olish uchun tayyor ✅</b> ❞</blockquote>
+<blockquote>${E.VIDEO_MONO} Epizod: <b>${ep} / ${totalEpisodes}</b>
+${E.FIRE} Sifat: <b>1080p Full HD (Maksimal)</b>
+${E.ARROW_UP} Holati: <b>Yuklab olish uchun tayyor ${E.CHECK}</b> ❞</blockquote>
 
-<i>✨ Siz VIP foydalanuvchisiz! Har bir epizodni bitta-bittalab to'g'ridan-to'g'ri yuklab olishingiz va saqlashingiz mumkin.</i>`;
+<i>${E.NEW} Siz VIP foydalanuvchisiz! Har bir epizodni bitta-bittalab to'g'ridan-to'g'ri yuklab olishingiz va saqlashingiz mumkin.</i>`;
 
     const vipButtons: any[][] = [];
     if (Number(ep) < totalEpisodes) {
@@ -1440,12 +1441,12 @@ async function handlePlayEpisode(chatId: number | string, anime: any, ep: string
     }
   } else {
     // FREE USER: Watches one-by-one in player, cannot download, previous gets replaced
-    const freeText = `▶️ <b>${escapeHtml(anime.title)} — ${ep}-qism ijro etilmoqda 🎬</b>
+    const freeText = `▶️ <b>${escapeHtml(anime.title)} — ${ep}-qism ijro etilmoqda ${E.VIDEO_MONO}</b>
 
-<blockquote>📺 Epizod: <b>${ep} / ${totalEpisodes}</b>
-🛡️ Rejim: <b>Oddiy tomosha (Faqat bitta-bittalab)</b> ❞</blockquote>
+<blockquote>${E.VIDEO_MONO} Epizod: <b>${ep} / ${totalEpisodes}</b>
+${E.KEY_MONO} Rejim: <b>Oddiy tomosha (Faqat bitta-bittalab)</b> ❞</blockquote>
 
-<i>⚠️ Sizda Animem Pass obunasi yo'qligi sababli videoni fayl sifatida yuklab ololmaysiz va avvalgi epizod o'chiriladi. Barcha epizodlarni to'g'ridan-to'g'ri Telegramda bitta-bittalab yuklab olish uchun Animem Pass xarid qiling!</i>`;
+<i>${E.WARN_YELLOW} Sizda Animem Pass obunasi yo'qligi sababli videoni fayl sifatida yuklab ololmaysiz va avvalgi epizod o'chiriladi. Barcha epizodlarni to'g'ridan-to'g'ri Telegramda bitta-bittalab yuklab olish uchun Animem Pass xarid qiling!</i>`;
 
     const freeButtons: any[][] = [];
     if (Number(ep) < totalEpisodes) {
@@ -1654,8 +1655,8 @@ export async function getAnimeRecommendations(userQuery: string = 'trend'): Prom
   }
 
   const top = animes.slice(0, 5);
-  return `✨ <b>Siz uchun maxsus tavsiyalar:</b>\n\n` +
-    top.map((a, i) => `${i + 1}. 🎬 <b>${a.title}</b> (${a.year || '2024'})\n   ⭐ Reyting: ${a.rating || '9.0'} | 🎭 Janr: ${(a.genres || []).join(', ')}\n   🔎 Tomosha qilish uchun anime nomini qidiring!`).join('\n\n');
+  return `${E.STAR} <b>Siz uchun maxsus tavsiyalar:</b>\n\n` +
+    top.map((a, i) => `${i + 1}. ${E.VIDEO_MONO} <b>${a.title}</b> (${a.year || '2024'})\n   ${E.STAR} Reyting: ${a.rating || '9.0'} | ${E.ARCHIVE_MONO} Janr: ${(a.genres || []).join(', ')}\n   ${E.SEARCH_MONO} Tomosha qilish uchun anime nomini qidiring!`).join('\n\n');
 }
 
 // ----------------- Chronology / Xronologiya List -----------------
@@ -1709,17 +1710,17 @@ export async function getAnimeChronologyText(animeNameQuery?: string): Promise<s
     const q = animeNameQuery.toLowerCase();
     const matchedKey = Object.keys(chronologies).find(k => k.toLowerCase().includes(q) || q.includes(k.toLowerCase()));
     if (matchedKey) {
-      return `📜 <b>${matchedKey} Xronologiyasi (Ko'rish ketma-ketligi):</b>\n\n` +
+      return `${E.ARCHIVE_MONO} <b>${matchedKey} Xronologiyasi (Ko'rish ketma-ketligi):</b>\n\n` +
         chronologies[matchedKey].map(line => `• ${line}`).join('\n') +
-        `\n\n💡 <i>Tomosha qilish uchun anime nomini qidiring!</i>`;
+        `\n\n${E.NEW} <i>Tomosha qilish uchun anime nomini qidiring!</i>`;
     }
   }
 
-  let res = `📜 <b>Mashhur animelarning to'g'ri ko'rish ketma-ketligi (Xronologiya):</b>\n\n`;
+  let res = `${E.ARCHIVE_MONO} <b>Mashhur animelarning to'g'ri ko'rish ketma-ketligi (Xronologiya):</b>\n\n`;
   for (const [title, list] of Object.entries(chronologies)) {
     res += `🔹 <b>${title}:</b>\n${list.map(l => `   ${l}`).join('\n')}\n\n`;
   }
-  res += `💡 <i>O'zingizga kerakli anime xronologiyasini topish uchun anime nomini yuboring.</i>`;
+  res += `${E.NEW} <i>O'zingizga kerakli anime xronologiyasini topish uchun anime nomini yuboring.</i>`;
   return res;
 }
 
@@ -1746,17 +1747,17 @@ export async function searchAnimeByImageUrl(imageUrl: string): Promise<{ success
         (a.original_title && filename.toLowerCase().includes(a.original_title.toLowerCase()))
       );
 
-      let text = `📸 <b>Rasmdan anime aniqlandi!</b>\n\n`;
-      text += `🎬 <b>Anime:</b> <code>${filename}</code>\n`;
-      text += `📺 <b>Qism:</b> ${episode}-qism\n`;
-      text += `⏱️ <b>Vaqt:</b> ${timeString}\n`;
-      text += `🎯 <b>Aniqlik darajasi:</b> ${similarity}%\n\n`;
+      let text = `${E.IMAGE_MONO} <b>Rasmdan anime aniqlandi!</b>\n\n`;
+      text += `${E.VIDEO_MONO} <b>Anime:</b> <code>${filename}</code>\n`;
+      text += `${E.PLAYER} <b>Qism:</b> ${episode}-qism\n`;
+      text += `${E.LOADING} <b>Vaqt:</b> ${timeString}\n`;
+      text += `${E.FIRE} <b>Aniqlik darajasi:</b> ${similarity}%\n\n`;
 
       if (matchedInDb) {
-        text += `✅ <b>Bizning bazada mavjud:</b> "${matchedInDb.title}"\n`;
+        text += `${E.CHECK} <b>Bizning bazada mavjud:</b> "${matchedInDb.title}"\n`;
         text += `👉 Tomosha qilish uchun anime nomini qidiring!`;
       } else {
-        text += `🔍 Ushbu animeni qidiruv orqali qidirib ko'rishingiz mumkin.`;
+        text += `${E.SEARCH_MONO} Ushbu animeni qidiruv orqali qidirib ko'rishingiz mumkin.`;
       }
 
       return { success: true, text, matchedAnime: matchedInDb };
@@ -1765,7 +1766,7 @@ export async function searchAnimeByImageUrl(imageUrl: string): Promise<{ success
     }
   } catch (err: any) {
     console.error('trace.moe error:', err?.message || err);
-    return { success: false, text: `⚠️ Rasmni tahlil qilishda xatolik yuz berdi. Iltimos, boshqa rasm yuborib ko'ring.` };
+    return { success: false, text: `${E.WARN_YELLOW} Rasmni tahlil qilishda xatolik yuz berdi. Iltimos, boshqa rasm yuborib ko'ring.` };
   }
 }
 
@@ -2036,18 +2037,18 @@ async function handleMessage(message: any) {
       const savedAnime = enrichAnimeWithTelegram(rawSaved);
       adminSessions.delete(chatId);
 
-      const successCaption = `🎉 <b>Tabriklaymiz! "${savedAnime.title}" muvaffaqiyatli qo'shildi!</b>
+      const successCaption = `${E.NEW} <b>Tabriklaymiz! "${savedAnime.title}" muvaffaqiyatli qo'shildi!</b>
 
-✨ <b>Sinxronizatsiya:</b>
+${E.FIRE} <b>Sinxronizatsiya:</b>
 • 🌐 Vebsaytda bir zumda jonli efirga chiqdi
-• 🔍 Telegram bot (@${savedAnime.telegram?.botUsername || 'Animem_uz_bot'}) qidiruvida paydo bo'ldi
-• 📺 Barcha ${savedAnime.total_episodes} ta epizodlari tayyorlandi
+• ${E.SEARCH_MONO} Telegram bot (@${savedAnime.telegram?.botUsername || 'Animem_uz_bot'}) qidiruvida paydo bo'ldi
+• ${E.VIDEO_MONO} Barcha ${savedAnime.total_episodes} ta epizodlari tayyorlandi
 
 🔗 <b>Start Link:</b> <code>${savedAnime.telegram_bot_url}</code>
 
-🎬 <b>Ma'lumotlar:</b>
-⭐ Reyting: ${savedAnime.rating} | 🗓️ Yil: ${savedAnime.year}
-🎭 Janr: ${(savedAnime.genres || []).join(', ')}`;
+${E.BOOKMARK} <b>Ma'lumotlar:</b>
+${E.STAR} Reyting: ${savedAnime.rating} | ${E.CALENDAR} Yil: ${savedAnime.year}
+${E.ARCHIVE_MONO} Janr: ${(savedAnime.genres || []).join(', ')}`;
 
       await telegramApiCall('sendPhoto', {
         chat_id: chatId,
@@ -2361,13 +2362,13 @@ async function handleVideoUpload(
         pendingVideoUploads.delete(Number(fromChatId));
         await telegramApiCall('sendMessage', {
           chat_id: fromChatId,
-          text: `✅ <b>[Forward / Epizod] Muvaffaqiyatli saqlandi!</b>
+          text: `${E.CHECK} <b>[Forward / Epizod] Muvaffaqiyatli saqlandi!</b>
 
-🎬 <b>Anime:</b> <b>${escapeHtml(targetAnime.title)}</b>
-📺 <b>Epizod:</b> <b>${episodeNum}-qism</b>
-⚡ <b>Fayl / Sifat:</b> ${escapeHtml(filename || '1080p / 720p Video')}
+${E.BOOKMARK} <b>Anime:</b> <b>${escapeHtml(targetAnime.title)}</b>
+${E.VIDEO_MONO} <b>Epizod:</b> <b>${episodeNum}-qism</b>
+${E.FIRE} <b>Fayl / Sifat:</b> ${escapeHtml(filename || '1080p / 720p Video')}
 ${sourceInfo ? `📥 <b>Manba:</b> ${escapeHtml(sourceInfo)}\n` : ''}
-✨ <i>Vebsaytda va botda ushbu qism bir zumda yuklab olish va tomosha qilish uchun faollashtirildi!</i>`,
+${E.NEW} <i>Vebsaytda va botda ushbu qism bir zumda yuklab olish va tomosha qilish uchun faollashtirildi!</i>`,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
@@ -2412,9 +2413,9 @@ ${sourceInfo ? `📥 <b>Manba:</b> ${escapeHtml(sourceInfo)}\n` : ''}
         text: `📥 <b>Forward qilingan video / epizod qabul qilindi!</b>
 
 📌 <b>Epizod raqami:</b> <b>${episodeNum}-qism</b>
-📁 <b>Fayl:</b> <code>${escapeHtml(filename || 'Telegram Video')}</code>
+${E.ARCHIVE_MONO} <b>Fayl:</b> <code>${escapeHtml(filename || 'Telegram Video')}</code>
 ${sourceInfo ? `📤 <b>Manba:</b> ${escapeHtml(sourceInfo)}\n` : ''}
-⚠️ <i>Anime nomi matndan avtomatik topilmadi.</i>
+${E.WARN_YELLOW} <i>Anime nomi matndan avtomatik topilmadi.</i>
 
 👇 <b>Ushbu qism qaysi animega tegishli? Quyidagi ro'yxatdan tanlang yoki anime nomini xabar qilib yozing:</b>`,
         parse_mode: 'HTML',

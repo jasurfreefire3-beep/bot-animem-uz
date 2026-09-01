@@ -26,8 +26,16 @@ import {
 
 
 async function startServer() {
+  // Global error safety handlers for production hosting (Northflank, Render, Docker)
+  process.on('unhandledRejection', (reason, promise) => {
+    console.warn('[Global Safety] Unhandled Promise Rejection:', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[Global Safety] Uncaught Exception:', err);
+  });
+
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = Number(process.env.PORT || process.env.NORTHFLANK_PORT) || 3000;
 
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));

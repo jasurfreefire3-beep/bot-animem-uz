@@ -5,19 +5,31 @@ import { enrichAnimeWithTelegram } from './telegram.js';
 const { Pool } = pg;
 
 // Connection configuration
-export let dbConfig = {
-  host: process.env.PGHOST || 'psql.fr-roub1.bengt.wasmernet.com',
-  port: Number(process.env.PGPORT) || 20184,
-  database: process.env.PGDATABASE || 'Animembot',
-  user: process.env.PGUSER || 'user_db8f7558',
-  password: process.env.PGPASSWORD || 'pw_6RUM4wvuayjkvEyDWjfQeXT18r5JOV0r',
-  ssl: {
-    rejectUnauthorized: false
-  },
-  connectionTimeoutMillis: 7000,
-  idleTimeoutMillis: 10000,
-  max: 10
-};
+const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.PG_URL;
+
+export let dbConfig: any = connectionString
+  ? {
+      connectionString,
+      ssl: {
+        rejectUnauthorized: false
+      },
+      connectionTimeoutMillis: 7000,
+      idleTimeoutMillis: 10000,
+      max: 10
+    }
+  : {
+      host: process.env.PGHOST || 'psql.fr-roub1.bengt.wasmernet.com',
+      port: Number(process.env.PGPORT) || 20184,
+      database: process.env.PGDATABASE || 'Animembot',
+      user: process.env.PGUSER || 'user_db8f7558',
+      password: process.env.PGPASSWORD || 'pw_6RUM4wvuayjkvEyDWjfQeXT18r5JOV0r',
+      ssl: {
+        rejectUnauthorized: false
+      },
+      connectionTimeoutMillis: 7000,
+      idleTimeoutMillis: 10000,
+      max: 10
+    };
 
 let pool: pg.Pool | null = null;
 let isConnected = false;
@@ -96,6 +108,16 @@ export async function testAndInitConnection(customConfig?: any) {
         id SERIAL PRIMARY KEY,
         username VARCHAR(255) UNIQUE NOT NULL,
         title VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        telegram_id BIGINT PRIMARY KEY,
+        first_name VARCHAR(255),
+        username VARCHAR(255),
+        pass_expires_at TIMESTAMP WITH TIME ZONE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);

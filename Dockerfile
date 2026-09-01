@@ -1,10 +1,8 @@
-# Multi-stage Dockerfile for Fly.io deployment
-
+# Multi-stage Dockerfile optimized for Northflank, Railway, Render, Fly.io
 FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package.json ./
-
 RUN npm install
 
 COPY . .
@@ -13,9 +11,10 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV PORT=3000
 
 COPY package.json ./
-RUN npm install --production
+RUN npm install --omit=dev --no-audit --no-fund
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public

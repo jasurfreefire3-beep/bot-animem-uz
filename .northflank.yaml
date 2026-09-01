@@ -1,6 +1,9 @@
-# Northflank configuration to explicitly define the startup command
-# This helps resolve "define the start command" errors.
+# Northflank Deployment Configuration
+# Supports both Dockerfile build and buildpack/Node.js direct build
 processes:
   web:
     command: node dist/server.cjs
     port: 3000
+    healthCheck:
+      path: /api/health
+      port: 3000
