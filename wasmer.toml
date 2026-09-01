@@ -3,12 +3,15 @@ name = "bot-animem-uz"
 version = "0.1.0"
 description = "Anime Backend App"
 
+[build]
+command = "npm run build"
+
 [[module]]
 name = "server"
 source = "dist/server.cjs"
 
 [[command]]
-name = "run"
+name = "start"
 module = "server"
 runner = "wasmer/js"
 
@@ -17,4 +20,4 @@ public = true
 
 [[app.routes]]
 path = "/*"
-backend = "command:run"
+backend = "command:start"

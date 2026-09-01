@@ -2,5 +2,5 @@
 # This helps resolve "define the start command" errors.
 processes:
   web:
-    command: npm start
+    command: node dist/server.cjs
     port: 3000
