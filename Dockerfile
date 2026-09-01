@@ -4,8 +4,6 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package.json ./
-# If bun.lock or package-lock.json exists, copy them too
-COPY bun.lock* ./
 
 RUN npm install
 
