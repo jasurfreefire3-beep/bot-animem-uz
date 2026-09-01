@@ -10,7 +10,8 @@
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "heroku-postbuild": "npm run build",
-    "start": "node dist/server.cjs",
+    "start": "static-web-server",
+    "start:server": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
