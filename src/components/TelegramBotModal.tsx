@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   X,
-  Send,
   ExternalLink,
   Copy,
   Check,
@@ -13,6 +12,7 @@ import {
   Globe
 } from 'lucide-react';
 import { Anime } from '../types';
+import { TelegramIcon } from './icons/TelegramIcon';
 
 interface TelegramBotModalProps {
   anime: Anime | null;
@@ -50,7 +50,7 @@ export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({ anime, onClo
         <div className="p-6 border-b border-purple-900/40 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-sky-900/30">
-              <Send className="w-5 h-5 ml-0.5" />
+              <TelegramIcon className="w-5 h-5 ml-0.5" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-white font-['Outfit']">Telegram Bot orqali tomosha qilish</h2>
@@ -132,7 +132,7 @@ export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({ anime, onClo
                   rel="noopener noreferrer"
                   className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 hover:from-sky-400 hover:to-purple-500 text-white font-bold text-sm shadow-lg shadow-sky-950/50 flex items-center justify-center gap-2 transition-all transform active:scale-95"
                 >
-                  <Send className="w-4 h-4" />
+                  <TelegramIcon className="w-4 h-4" />
                   <span>Telegramda ochish (@{botUsername})</span>
                   <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-80" />
                 </a>

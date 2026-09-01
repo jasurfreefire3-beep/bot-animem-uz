@@ -1,3 +1,7 @@
+/**
+ * Animem.uz Types Definition
+ * Version: 1.0.2
+ */
 export interface Anime {
   id: number;
   slug: string;

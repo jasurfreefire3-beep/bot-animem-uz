@@ -1,4 +1,15 @@
 export const DEFAULT_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'Animem_uz_bot';
+let activeBotUsername = process.env.TELEGRAM_BOT_USERNAME || '';
+
+export function setBotUsername(username: string) {
+  if (username) {
+    activeBotUsername = username.replace(/^@/, '');
+  }
+}
+
+export function getBotUsername(): string {
+  return activeBotUsername || process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
+}
 
 export interface TelegramAnimeLink {
   botUsername: string;
@@ -10,7 +21,7 @@ export interface TelegramAnimeLink {
 }
 
 export function generateTelegramLinks(anime: { id: number; slug?: string; telegram_code?: string; title: string }): TelegramAnimeLink {
-  const bot = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
+  const bot = getBotUsername();
   const startParam = anime.telegram_code || `anime_${anime.id}`;
   
   const webUrl = `https://t.me/${bot}?start=${encodeURIComponent(startParam)}`;
@@ -30,7 +41,7 @@ export function generateTelegramLinks(anime: { id: number; slug?: string; telegr
 
 export function enrichAnimeWithTelegram(anime: any) {
   if (!anime) return anime;
-  const bot = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
+  const bot = getBotUsername();
   const code = anime.telegram_code || `anime_${anime.id || anime.slug}`;
   const startUrl = `https://t.me/${bot}?start=${encodeURIComponent(code)}`;
   const tgLinks = generateTelegramLinks(anime);
@@ -46,7 +57,7 @@ export function enrichAnimeWithTelegram(anime: any) {
 }
 
 export function generateEpisodeTelegramLink(animeId: number, episodeNum: number, animeTitle: string) {
-  const bot = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
+  const bot = getBotUsername();
   const startParam = `anime_${animeId}_ep_${episodeNum}`;
   
   return {
@@ -58,3 +69,4 @@ export function generateEpisodeTelegramLink(animeId: number, episodeNum: number,
     label: `${episodeNum}-qism (HD O'zbekcha)`
   };
 }
+

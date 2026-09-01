@@ -15,11 +15,14 @@ import {
   Flame,
   Moon,
   Heart,
-  Send,
   Sparkles,
   ShieldCheck,
+  History,
+  FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { usePass } from '../context/PassContext';
+import { TelegramIcon } from './icons/TelegramIcon';
 
 interface PassModalProps {
   isOpen: boolean;
@@ -56,6 +59,21 @@ export const PassModal: React.FC<PassModalProps> = ({ isOpen, onClose }) => {
       icon: <Layers className="w-5 h-5 text-yellow-400 shrink-0" />,
       title: "Barcha qismlar saqlanadi",
       desc: "Oldingi qismlar o'chib ketmaydi — birdaniga barchasini tomosha qiling",
+    },
+    {
+      icon: <History className="w-5 h-5 text-yellow-400 shrink-0" />,
+      title: "Xronologiya",
+      desc: "Animelarning qismlarini to'g'ri ketma-ketlikda (Xronologik tartibda) ko'rish imkoniyati",
+    },
+    {
+      icon: <FileText className="w-5 h-5 text-yellow-400 shrink-0" />,
+      title: "Tavsif",
+      desc: "Animelar haqida to'liq va batafsil tavsiflarni o'qish imkoniyati",
+    },
+    {
+      icon: <ImageIcon className="w-5 h-5 text-yellow-400 shrink-0" />,
+      title: "Rasm orqali qidiruv",
+      desc: "Anime skrinshotini yuboring va biz uni qaysi animedan ekanligini topib beramiz",
     },
     {
       icon: <HeartHandshake className="w-5 h-5 text-yellow-400 shrink-0" />,
@@ -362,7 +380,7 @@ export const PassModal: React.FC<PassModalProps> = ({ isOpen, onClose }) => {
                       : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-600/30 border border-purple-400/30'
                   }`}
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  <TelegramIcon className="w-3.5 h-3.5" />
                   <span>Xarid qilish</span>
                 </button>
               </div>

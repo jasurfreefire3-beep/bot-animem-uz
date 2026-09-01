@@ -6,7 +6,6 @@ import {
   Sparkles,
   Search,
   Play,
-  Send,
   CheckCircle2,
   Clock,
   Film,
@@ -14,6 +13,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { Anime } from '../types';
+import { TelegramIcon } from './icons/TelegramIcon';
 
 interface ImageSearchModalProps {
   isOpen: boolean;
@@ -390,7 +390,7 @@ export const ImageSearchModal: React.FC<ImageSearchModalProps> = ({
                     rel="noopener noreferrer"
                     className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
                   >
-                    <Send className="w-3.5 h-3.5 fill-black" />
+                    <TelegramIcon className="w-3.5 h-3.5 fill-black" />
                     <span>Ushbu qismni Telegramda tomosha qilish</span>
                   </a>
                 </div>

@@ -6,6 +6,9 @@ import { RecentUpdatesSection } from './components/RecentUpdatesSection';
 import { SectionGrid } from './components/SectionGrid';
 import { AnimeDetailPage } from './components/AnimeDetailPage';
 import { TelegramBotModal } from './components/TelegramBotModal';
+import { ChronologyModal } from './components/ChronologyModal';
+import { RecommendationsModal } from './components/RecommendationsModal';
+import { ImageSearchModal } from './components/ImageSearchModal';
 import { PassModal } from './components/PassModal';
 import { PassRequiredModal } from './components/PassRequiredModal';
 import { SearchModal } from './components/SearchModal';
@@ -28,6 +31,9 @@ export default function App() {
   const [selectedAnime, setSelectedAnime] = useState<Anime | null>(null);
   const [telegramModalAnime, setTelegramModalAnime] = useState<Anime | null>(null);
   const [isPassOpen, setIsPassOpen] = useState(false);
+  const [isChronologyOpen, setIsChronologyOpen] = useState(false);
+  const [isRecommendationsOpen, setIsRecommendationsOpen] = useState(false);
+  const [isImageSearchOpen, setIsImageSearchOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isDbManagerOpen, setIsDbManagerOpen] = useState(false);
@@ -199,6 +205,9 @@ export default function App() {
             onBack={() => handleSelectAnime(null)}
             onOpenPass={() => setIsPassOpen(true)}
             onOpenTelegramModal={(anime) => setTelegramModalAnime(anime)}
+            onOpenChronology={() => setIsChronologyOpen(true)}
+            onOpenRecommendations={() => setIsRecommendationsOpen(true)}
+            onOpenImageSearch={() => setIsImageSearchOpen(true)}
           />
         ) : (
           <>
@@ -374,6 +383,27 @@ export default function App() {
       <PassModal
         isOpen={isPassOpen}
         onClose={() => setIsPassOpen(false)}
+      />
+
+      {/* Premium Feature Modals */}
+      <ChronologyModal
+        isOpen={isChronologyOpen}
+        onClose={() => setIsChronologyOpen(false)}
+        onSelectAnime={handleSelectAnime}
+        allAnimes={allAnimes}
+      />
+
+      <RecommendationsModal
+        isOpen={isRecommendationsOpen}
+        onClose={() => setIsRecommendationsOpen(false)}
+        onSelectAnime={handleSelectAnime}
+        allAnimes={allAnimes}
+      />
+
+      <ImageSearchModal
+        isOpen={isImageSearchOpen}
+        onClose={() => setIsImageSearchOpen(false)}
+        onSelectAnime={handleSelectAnime}
       />
 
       {/* Pass Required Warning Modal (Pop up in center if locked feature clicked) */}

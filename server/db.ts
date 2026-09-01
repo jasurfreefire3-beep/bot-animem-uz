@@ -22,7 +22,7 @@ export let dbConfig = {
 let pool: pg.Pool | null = null;
 let isConnected = false;
 let lastError: string | null = null;
-let fallbackMemoryStore: any[] = [];
+let fallbackMemoryStore: any[] = initialAnimes.map(a => enrichAnimeWithTelegram(a));
 
 export async function clearAllAnimes() {
   fallbackMemoryStore = [];
@@ -80,16 +80,6 @@ export async function testAndInitConnection(customConfig?: any) {
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        telegram_id BIGINT PRIMARY KEY,
-        first_name VARCHAR(255),
-        username VARCHAR(255),
-        pass_expires_at TIMESTAMP WITH TIME ZONE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    await client.query(`
       CREATE TABLE IF NOT EXISTS invoices (
         order_id SERIAL PRIMARY KEY,
         telegram_id BIGINT NOT NULL,
@@ -101,38 +91,31 @@ export async function testAndInitConnection(customConfig?: any) {
       );
     `);
 
-
     await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        telegram_id BIGINT PRIMARY KEY,
-        first_name VARCHAR(255),
-        username VARCHAR(255),
-        pass_expires_at TIMESTAMP WITH TIME ZONE,
+      CREATE TABLE IF NOT EXISTS mandatory_channels (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(255) UNIQUE NOT NULL,
+        title VARCHAR(255),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS invoices (
-        order_id SERIAL PRIMARY KEY,
-        telegram_id BIGINT NOT NULL,
-        amount NUMERIC(10, 2) NOT NULL,
-        duration_days INTEGER NOT NULL,
-        pay_url TEXT,
-        status VARCHAR(50) DEFAULT 'pending',
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-
-    // Clear all test animes as requested by user
-    await client.query('DELETE FROM animes;');
-    console.log('All test animes deleted from database successfully.');
 
     client.release();
     isConnected = true;
     lastError = null;
-    return { success: true, count: 0, message: 'Barcha test animelar o\'chirildi va baza toza!' };
+
+    // Sync memory store from DB after connection
+    try {
+      const all = await getAllAnimes();
+      if (Array.isArray(all)) {
+        fallbackMemoryStore = all;
+      }
+    } catch (syncErr) {
+      console.warn('Initial sync error:', syncErr);
+    }
+
+    return { success: true, message: 'Database connected successfully.' };
   } catch (err: any) {
     console.warn('PostgreSQL connection error:', err.message);
     isConnected = false;
@@ -146,6 +129,7 @@ export async function initDatabase() {
 }
 
 export async function getAllAnimes(filter?: { category?: string; search?: string; genre?: string; sort?: string }) {
+  console.log(`[DB] getAllAnimes called with filter:`, filter);
   try {
     if (isConnected) {
       const currentPool = getPool();
@@ -174,7 +158,7 @@ export async function getAllAnimes(filter?: { category?: string; search?: string
       } else if (filter?.sort === 'year') {
         query += " ORDER BY (data->>'year')::int DESC";
       } else {
-        query += ' ORDER BY id ASC';
+        query += ' ORDER BY id DESC';
       }
 
       const result = await currentPool.query(query, params);
@@ -199,6 +183,7 @@ export async function getAllAnimes(filter?: { category?: string; search?: string
 
   // Fallback in-memory list
   let list = fallbackMemoryStore.map(a => enrichAnimeWithTelegram(a));
+  list.sort((a, b) => (b.id || 0) - (a.id || 0));
   if (filter?.category && filter.category !== 'all') {
     list = list.filter(a => a.category === filter.category);
   }
@@ -222,15 +207,39 @@ export async function getAllAnimes(filter?: { category?: string; search?: string
 }
 
 export async function getAnimeByIdOrSlug(idOrSlug: string | number) {
+  const rawStr = String(idOrSlug || '').trim();
+  // Strip common prefixes and any non-alphanumeric characters at the start
+  const cleanParam = rawStr.replace(/^(anime_|id_|id|anime|watch_|watch)/i, '').replace(/^[^a-z0-9]+/i, '');
+  const isNum = !isNaN(Number(cleanParam)) && cleanParam !== '';
+  const numId = isNum ? Number(cleanParam) : null;
+  
+  const slugStr = rawStr.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const cleanSlug = cleanParam.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
   try {
     if (isConnected) {
       const currentPool = getPool();
-      const isNum = !isNaN(Number(idOrSlug));
-      const query = isNum 
-        ? 'SELECT id, slug, title, category, views_count, rating, data FROM animes WHERE id = $1'
-        : 'SELECT id, slug, title, category, views_count, rating, data FROM animes WHERE slug = $1';
-      
-      const result = await currentPool.query(query, [isNum ? Number(idOrSlug) : idOrSlug]);
+      const query = `
+        SELECT id, slug, title, category, views_count, rating, data 
+        FROM animes 
+        WHERE 
+          ($1::bigint IS NOT NULL AND id = $1)
+          OR slug = $2
+          OR slug = $3
+          OR slug = $4
+          OR data->>'telegram_code' = $2
+          OR data->>'telegram_code' = $3
+          OR data->>'telegram_code' = $5
+          OR data->>'slug' = $2
+      `;
+      const result = await currentPool.query(query, [
+        numId,
+        rawStr,
+        cleanParam,
+        slugStr,
+        `anime_${cleanParam}`
+      ]);
+
       if (result.rows.length > 0) {
         const row = result.rows[0];
         await currentPool.query('UPDATE animes SET views_count = views_count + 1 WHERE id = $1', [row.id]).catch(() => {});
@@ -249,8 +258,21 @@ export async function getAnimeByIdOrSlug(idOrSlug: string | number) {
     console.warn('PostgreSQL getAnimeById error:', e.message);
   }
 
-  const isNum = !isNaN(Number(idOrSlug));
-  const found = fallbackMemoryStore.find(a => isNum ? a.id === Number(idOrSlug) : a.slug === idOrSlug);
+  const found = fallbackMemoryStore.find(a => {
+    return (
+      (numId !== null && a.id === numId) ||
+      a.slug === rawStr ||
+      a.slug === cleanParam ||
+      a.slug === slugStr ||
+      a.slug === cleanSlug ||
+      a.telegram_code === rawStr ||
+      a.telegram_code === cleanParam ||
+      a.telegram_code === `anime_${cleanParam}` ||
+      String(a.id) === rawStr ||
+      String(a.id) === cleanParam
+    );
+  });
+
   if (found) {
     found.views_count += 1;
     return enrichAnimeWithTelegram(found);
@@ -293,6 +315,7 @@ export async function addAnime(animeData: any) {
           `UPDATE animes SET data = $1 WHERE id = $2;`,
           [JSON.stringify(fullItem), newId]
         );
+        console.log(`✅ Anime PostgreSQL bazasiga muvaffaqiyatli saqlandi: ${fullItem.title} (ID: ${newId})`);
       } else {
         await currentPool.query(
           `INSERT INTO animes (id, slug, title, category, views_count, rating, data)
@@ -313,8 +336,10 @@ export async function addAnime(animeData: any) {
             JSON.stringify(fullItem)
           ]
         );
+        console.log(`✅ Anime PostgreSQL bazasida yangilandi: ${fullItem.title} (ID: ${newId})`);
       }
     } else {
+      console.warn('⚠️ Database ulanmagan, anime faqat xotirada saqlanadi!');
       if (isNew) {
          newId = Math.floor(Math.random() * 2000000000);
          fullItem.id = newId;
@@ -329,7 +354,8 @@ export async function addAnime(animeData: any) {
   }
 
   // Update fallback memory store
-  const existingIdx = fallbackMemoryStore.findIndex(a => a.id === newId || a.slug === slug);
+  console.log(`[DB] addAnime: updating memory store for ${fullItem.title} (slug: ${slug})`);
+  const existingIdx = fallbackMemoryStore.findIndex(a => a.id === fullItem.id || a.slug === slug);
   if (existingIdx >= 0) {
     fallbackMemoryStore[existingIdx] = fullItem;
   } else {
@@ -452,7 +478,7 @@ export function getDatabaseStatus() {
     database: dbConfig.database,
     user: dbConfig.user,
     lastError: lastError,
-    totalAnimes: isConnected ? fallbackMemoryStore.length : fallbackMemoryStore.length,
+    totalAnimes: fallbackMemoryStore.length,
     message: isConnected 
       ? 'PostgreSQL bazasiga muvaffaqiyatli ulangan (Jadvallar faol)' 
       : 'PostgreSQL ulanish kutilmoqda (Lokal keshda 26 ta anime tayyor)',
@@ -524,4 +550,58 @@ export async function getTotalActivePasses(): Promise<number> {
     count = Array.from(memoryPasses.values()).filter(exp => exp > now).length;
   }
   return count;
+}
+
+// --- Mandatory Channels Logic ---
+let memoryChannels: { id: number; username: string; title?: string }[] = [];
+
+export async function getMandatoryChannels(): Promise<{ id: number; username: string; title?: string }[]> {
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const res = await p.query('SELECT id, username, title FROM mandatory_channels ORDER BY id ASC');
+      memoryChannels = res.rows;
+      return res.rows;
+    }
+  } catch (e: any) {
+    console.warn('getMandatoryChannels error:', e.message);
+  }
+  return memoryChannels;
+}
+
+export async function addMandatoryChannel(username: string, title?: string): Promise<boolean> {
+  const cleanUsername = username.startsWith('@') ? username : `@${username}`;
+  try {
+    if (isConnected) {
+      const p = getPool();
+      await p.query(
+        'INSERT INTO mandatory_channels (username, title) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET title = EXCLUDED.title',
+        [cleanUsername, title || cleanUsername]
+      );
+      await getMandatoryChannels(); // Refresh cache
+      return true;
+    }
+  } catch (e: any) {
+    console.warn('addMandatoryChannel error:', e.message);
+  }
+  
+  if (!memoryChannels.find(c => c.username === cleanUsername)) {
+    memoryChannels.push({ id: Math.floor(Math.random() * 1000), username: cleanUsername, title: title || cleanUsername });
+  }
+  return true;
+}
+
+export async function removeMandatoryChannel(id: number): Promise<boolean> {
+  try {
+    if (isConnected) {
+      const p = getPool();
+      await p.query('DELETE FROM mandatory_channels WHERE id = $1', [id]);
+      await getMandatoryChannels(); // Refresh cache
+      return true;
+    }
+  } catch (e: any) {
+    console.warn('removeMandatoryChannel error:', e.message);
+  }
+  memoryChannels = memoryChannels.filter(c => c.id !== id);
+  return true;
 }

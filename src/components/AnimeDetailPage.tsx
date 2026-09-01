@@ -5,20 +5,24 @@ import {
   Star,
   Clock,
   ShieldAlert,
+  Lock,
   ChevronDown,
   ChevronUp,
-  Send,
   Play,
   CheckCircle2,
 } from 'lucide-react';
 import { Anime } from '../types';
 import { usePass } from '../context/PassContext';
+import { TelegramIcon } from './icons/TelegramIcon';
 
 interface AnimeDetailPageProps {
   anime: Anime;
   onBack: () => void;
   onOpenPass: () => void;
   onOpenTelegramModal: (anime: Anime) => void;
+  onOpenChronology: () => void;
+  onOpenRecommendations: () => void;
+  onOpenImageSearch: () => void;
 }
 
 export const AnimeDetailPage: React.FC<AnimeDetailPageProps> = ({
@@ -26,8 +30,12 @@ export const AnimeDetailPage: React.FC<AnimeDetailPageProps> = ({
   onBack,
   onOpenPass,
   onOpenTelegramModal,
+  onOpenChronology,
+  onOpenRecommendations,
+  onOpenImageSearch,
 }) => {
   const [isDescExpanded, setIsDescExpanded] = useState(false);
+  const [selectedEpisode, setSelectedEpisode] = useState<number>(1);
   const { hasPass, requestFeature } = usePass();
 
   useEffect(() => {
@@ -87,6 +95,32 @@ export const AnimeDetailPage: React.FC<AnimeDetailPageProps> = ({
 
   const handleWatchClick = () => {
     onOpenTelegramModal(anime);
+  };
+
+  const handleChronologyClick = () => {
+    if (requestFeature('chronology')) {
+      onOpenChronology();
+    }
+  };
+
+  const handleImageSearchClick = () => {
+    if (requestFeature('image_search')) {
+      onOpenImageSearch();
+    }
+  };
+
+  const handleRecommendationsClick = () => {
+    if (requestFeature('recommendations')) {
+      onOpenRecommendations();
+    }
+  };
+
+  const handleEpisodeClick = (epNum: number) => {
+    if (epNum > (anime.current_episode || 0)) {
+      alert("Bu epizod hali qo'yilmagan");
+      return;
+    }
+    setSelectedEpisode(epNum);
   };
 
   const episodesDisplay =
@@ -308,7 +342,95 @@ export const AnimeDetailPage: React.FC<AnimeDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Section 3: TAVSIF */}
+      {/* Section: EPIZODLAR */}
+      <div className="mb-7">
+        <div className="flex items-center justify-between mb-3.5">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-4 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+            <h3 className="text-xs sm:text-sm font-black tracking-wider uppercase text-white font-sans">
+              EPIZODLAR
+            </h3>
+          </div>
+          <span className="text-[10px] sm:text-xs text-purple-400 font-bold">
+            {anime.current_episode} / {anime.total_episodes} qismlar
+          </span>
+        </div>
+
+        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+          {Array.from({ length: anime.total_episodes || 12 }).map((_, idx) => {
+            const epNum = idx + 1;
+            const isAvailable = epNum <= (anime.current_episode || 0);
+            const isSelected = selectedEpisode === epNum;
+
+            return (
+              <button
+                key={epNum}
+                onClick={() => handleEpisodeClick(epNum)}
+                className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                  isSelected
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_12px_rgba(37,99,235,0.4)]'
+                    : 'bg-[#150f26] text-purple-300/70 border-purple-900/30 hover:border-purple-600/50 hover:text-white'
+                } ${!isAvailable && 'opacity-60'}`}
+              >
+                {epNum}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Section 3: PREMIUM FEATURES */}
+      <div className="mb-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-1.5 h-4 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+            <h3 className="text-xs sm:text-sm font-black tracking-wider uppercase text-white font-sans">
+              XRONOLOGIYA
+            </h3>
+          </div>
+          <button 
+            onClick={handleChronologyClick}
+            className="flex items-center gap-2 p-3 sm:p-4 rounded-xl bg-purple-900/10 border border-purple-500/20 text-purple-200 hover:bg-purple-900/20 transition-all text-left group"
+          >
+            <span className="text-[11px] sm:text-xs flex-1">Ushbu animening xronologiyasi.</span>
+            {!hasPass && <Lock className="w-3.5 h-3.5 text-yellow-500 group-hover:scale-110 transition-transform" />}
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-1.5 h-4 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+            <h3 className="text-xs sm:text-sm font-black tracking-wider uppercase text-white font-sans">
+              RASM ORQALI QIDIRUV
+            </h3>
+          </div>
+          <button 
+            onClick={handleImageSearchClick}
+            className="flex items-center gap-2 p-3 sm:p-4 rounded-xl bg-purple-900/10 border border-purple-500/20 text-purple-200 hover:bg-purple-900/20 transition-all text-left group"
+          >
+            <span className="text-[11px] sm:text-xs flex-1">Skrinshot orqali qidirish.</span>
+            {!hasPass && <Lock className="w-3.5 h-3.5 text-yellow-500 group-hover:scale-110 transition-transform" />}
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-1.5 h-4 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+            <h3 className="text-xs sm:text-sm font-black tracking-wider uppercase text-white font-sans">
+              TAVSIYALAR
+            </h3>
+          </div>
+          <button 
+            onClick={handleRecommendationsClick}
+            className="flex items-center gap-2 p-3 sm:p-4 rounded-xl bg-purple-900/10 border border-purple-500/20 text-purple-200 hover:bg-purple-900/20 transition-all text-left group"
+          >
+            <span className="text-[11px] sm:text-xs flex-1">O'xshash animelar.</span>
+            {!hasPass && <Lock className="w-3.5 h-3.5 text-yellow-500 group-hover:scale-110 transition-transform" />}
+          </button>
+        </div>
+      </div>
+
+          {/* Section 4: TAVSIF */}
       <div className="mb-10">
         <div className="flex items-center gap-2 mb-3.5">
           <div className="w-1.5 h-4 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
