@@ -1,6 +1,0 @@
-Procfile
-.northflank.yaml
-Dockerfile
-.gitignore
-node_modules
-.git
