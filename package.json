@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "mkdir -p dist && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "heroku-postbuild": "npm run build",
+    "prestart": "npm run build",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
