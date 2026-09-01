@@ -8,7 +8,15 @@ import {
   setUserPassDb,
   getMandatoryChannels,
   addMandatoryChannel,
-  removeMandatoryChannel
+  removeMandatoryChannel,
+  toggleFavorite,
+  isAnimeFavorited,
+  getFavoritesCount,
+  getUserFavorites,
+  getUserFavoritesCount,
+  saveUserRating,
+  getAnimeRatingStats,
+  getUserRating
 } from './db.js';
 import { setBotUsername, enrichAnimeWithTelegram, getBotUsername } from './telegram.js';
 import { E } from './emojis.js';
@@ -675,6 +683,7 @@ async function handleCallbackQuery(callbackQuery: any) {
     const hasPass = passExp > Date.now();
     const expDateStr = hasPass ? new Date(passExp).toLocaleDateString('uz-UZ') : '';
     const daysLeft = hasPass ? Math.ceil((passExp - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
+    const favCount = await getUserFavoritesCount(chatId);
 
     const statusText = hasPass 
       ? `VIP Animem Pass (Faol ${E.CHECK})\n   ${E.LOADING} Muddati: <b>${expDateStr}</b> (${daysLeft} kun qoldi)` 
@@ -686,16 +695,72 @@ async function handleCallbackQuery(callbackQuery: any) {
 ${E.STAR} <b>Ism:</b> ${from.first_name || 'Noma\'lum'} ${from.last_name || ''}
 ${E.TG_MONO} <b>Username:</b> @${from.username || 'mavjud emas'}
 ${E.CARD_MONO} <b>Status:</b> ${statusText}
+❤️ <b>Sevimlilar:</b> ${favCount} ta anime
 ${E.VIDEO_MONO} <b>Ko'rilgan animelar:</b> 0 ta
 
 <i>${hasPass ? 'Sizda barcha premium imtiyozlar faol!' : 'Animem Pass xarid qilib barcha cheklovlarni olib tashlang!'}</i>`;
 
     await editOrSendMessage(chatId, messageId, profileText, {
       inline_keyboard: [
+        [{ text: `❤️ Sevimlilar (${favCount})`, callback_data: 'btn_user_favorites', style: 'primary' }],
         [{ text: hasPass ? '✨ Passni uzaytirish' : '🎫 Animem Pass olish', callback_data: 'btn_pass', style: 'success' }],
         [{ text: '◀️ Asosiy menyuga qaytish', callback_data: 'btn_main_menu', style: 'primary' }],
       ],
     });
+  } else if (data === 'btn_user_favorites' || data.startsWith('btn_user_fav_p_')) {
+    const page = data.startsWith('btn_user_fav_p_') ? parseInt(data.replace('btn_user_fav_p_', ''), 10) || 1 : 1;
+    const favs = await getUserFavorites(chatId);
+
+    if (favs.length === 0) {
+      const emptyText = `❤️ <b>Sevimli Animelaringiz</b>\n\n<i>Sizda hali saqlangan sevimli animelar mavjud emas.\n\nIstalgan anime sahifasidagi <b>❤️ Sevimlilar</b> tugmasini bosish orqali animelarni bu yerga saqlab qo'yishingiz mumkin!</i>`;
+      await editOrSendMessage(chatId, messageId, emptyText, {
+        inline_keyboard: [
+          [{ text: '🔍 Anime qidirish', switch_inline_query_current_chat: '' }],
+          [{ text: '◀️ Profilga qaytish', callback_data: 'btn_profile' }],
+        ],
+      });
+      return;
+    }
+
+    const pageSize = 6;
+    const totalPages = Math.ceil(favs.length / pageSize) || 1;
+    const curPage = Math.max(1, Math.min(page, totalPages));
+    const pagedFavs = favs.slice((curPage - 1) * pageSize, curPage * pageSize);
+
+    let text = `❤️ <b>Sizning Sevimli Animelaringiz (${favs.length} ta):</b>\n\n`;
+    pagedFavs.forEach((a, idx) => {
+      const num = (curPage - 1) * pageSize + idx + 1;
+      const ratingStr = typeof a.rating === 'number' ? a.rating.toFixed(1) : (a.rating || '8.5');
+      text += `${num}. 📕 <b>${escapeHtml(a.title)}</b>\n   ⭐ ${ratingStr} • 📺 ${a.total_episodes || a.current_episode || 12} qism • 🗓️ ${a.year || '2024'}\n\n`;
+    });
+
+    text += `<i>Tomosha qilish uchun anime tanlang:</i>`;
+
+    const buttons: any[] = [];
+    for (let i = 0; i < pagedFavs.length; i += 2) {
+      const row: any[] = [];
+      row.push({ text: `🎬 ${pagedFavs[i].title.substring(0, 18)}`, callback_data: `anime_detail_${pagedFavs[i].id}` });
+      if (pagedFavs[i + 1]) {
+        row.push({ text: `🎬 ${pagedFavs[i + 1].title.substring(0, 18)}`, callback_data: `anime_detail_${pagedFavs[i + 1].id}` });
+      }
+      buttons.push(row);
+    }
+
+    if (totalPages > 1) {
+      const navRow: any[] = [];
+      if (curPage > 1) {
+        navRow.push({ text: '⬅️ Oldingi', callback_data: `btn_user_fav_p_${curPage - 1}` });
+      }
+      navRow.push({ text: `📄 ${curPage}/${totalPages}`, callback_data: 'noop' });
+      if (curPage < totalPages) {
+        navRow.push({ text: 'Keyingi ➡️', callback_data: `btn_user_fav_p_${curPage + 1}` });
+      }
+      buttons.push(navRow);
+    }
+
+    buttons.push([{ text: '◀️ Profilga qaytish', callback_data: 'btn_profile' }]);
+
+    await editOrSendMessage(chatId, messageId, text, { inline_keyboard: buttons });
   } else if (data === 'check_sub') {
     const sub = await checkSubscription(chatId);
     if (sub.ok) {
@@ -1162,7 +1227,7 @@ ${E.NEW} <i>Qo'shilgan epizodlar bir zumda saytda ham, botda ham tomosha qilish 
         await telegramApiCall('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
       }
       trackUser(chatId, '', anime.id);
-      await handlePlayEpisode(chatId, anime, ep, page);
+      await handlePlayEpisode(chatId, anime, ep, page, messageId, message?.caption);
     }
   } else if (data.startsWith('watch_anime_')) {
     // Format: watch_anime_${animeId}_${page}
@@ -1201,20 +1266,95 @@ ${E.NEW} <i>Qo'shilgan epizodlar bir zumda saytda ham, botda ham tomosha qilish 
 
       await telegramApiCall('answerCallbackQuery', { callback_query_id: id });
       trackUser(chatId, '', anime.id);
-      await handlePlayEpisode(chatId, anime, ep, page, messageId);
+      await handlePlayEpisode(chatId, anime, ep, page, messageId, message?.caption);
     }
   } else if (data.startsWith('anime_fav_')) {
-    await telegramApiCall('answerCallbackQuery', {
-      callback_query_id: id,
-      text: '❤️ Sevimlilarga qo\'shildi!',
-      show_alert: false,
-    });
+    const animeId = parseInt(data.replace('anime_fav_', ''), 10);
+    const anime = await getAnimeByIdOrSlug(animeId);
+    if (anime) {
+      const { isFavorited, count } = await toggleFavorite(chatId, anime.id);
+      await telegramApiCall('answerCallbackQuery', {
+        callback_query_id: id,
+        text: isFavorited 
+          ? `❤️ "${anime.title}" sevimlilarga qo'shildi! (Jami: ${count} ta)` 
+          : `💔 "${anime.title}" sevimlilardan olib tashlandi. (Jami: ${count} ta)`,
+        show_alert: false,
+      });
+      // In-place update card buttons
+      const { replyMarkup } = await buildAnimeDetailsCard(anime, chatId);
+      if (messageId) {
+        await telegramApiCall('editMessageReplyMarkup', {
+          chat_id: chatId,
+          message_id: messageId,
+          reply_markup: replyMarkup,
+        }).catch(() => {});
+      }
+    }
   } else if (data.startsWith('anime_rate_')) {
-    await telegramApiCall('answerCallbackQuery', {
-      callback_query_id: id,
-      text: '⭐ Baholash: 5/5 ⭐ Bahoingiz qabul qilindi!',
-      show_alert: true,
-    });
+    const animeId = parseInt(data.replace('anime_rate_', ''), 10);
+    const anime = await getAnimeByIdOrSlug(animeId);
+    if (anime) {
+      await telegramApiCall('answerCallbackQuery', { callback_query_id: id });
+      const currentRating = await getUserRating(chatId, anime.id);
+      const ratingKeyboard = [
+        [
+          { text: '1 ⭐', callback_data: `rate_set_${anime.id}_1` },
+          { text: '2 ⭐', callback_data: `rate_set_${anime.id}_2` },
+          { text: '3 ⭐', callback_data: `rate_set_${anime.id}_3` },
+          { text: '4 ⭐', callback_data: `rate_set_${anime.id}_4` },
+          { text: '5 ⭐', callback_data: `rate_set_${anime.id}_5` },
+        ],
+        [
+          { text: '6 ⭐', callback_data: `rate_set_${anime.id}_6` },
+          { text: '7 ⭐', callback_data: `rate_set_${anime.id}_7` },
+          { text: '8 ⭐', callback_data: `rate_set_${anime.id}_8` },
+          { text: '9 ⭐', callback_data: `rate_set_${anime.id}_9` },
+          { text: '10 ⭐', callback_data: `rate_set_${anime.id}_10` },
+        ],
+        [
+          { text: '◀️ Orqaga', callback_data: `anime_detail_${anime.id}` }
+        ]
+      ];
+
+      const ratePromptCaption = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>\n\n⭐ <b>Ushbu animeni qanday baholaysiz?</b>\n<i>1 dan 10 gacha bo'lgan yulduzchani tanlang:</i>${currentRating ? `\n\n(Sizning joriy bahoingiz: <b>${currentRating}/10 ⭐</b>)` : ''}`;
+
+      if (messageId) {
+        await telegramApiCall('editMessageCaption', {
+          chat_id: chatId,
+          message_id: messageId,
+          caption: ratePromptCaption,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: ratingKeyboard },
+        }).catch(() => {});
+      }
+    }
+  } else if (data.startsWith('rate_set_')) {
+    // Format: rate_set_${animeId}_${score}
+    const parts = data.replace('rate_set_', '').split('_');
+    const animeId = parseInt(parts[0], 10);
+    const score = parseInt(parts[1], 10) || 10;
+    const anime = await getAnimeByIdOrSlug(animeId);
+    if (anime) {
+      const stats = await saveUserRating(chatId, anime.id, score);
+      await telegramApiCall('answerCallbackQuery', {
+        callback_query_id: id,
+        text: `🌟 Katta rahmat! "${anime.title}"ga ${score}/10 baho berdingiz!\n\nJoriy o'rtacha reyting: ${stats.avgRating} ⭐ (${stats.totalVotes} ta ovoz)`,
+        show_alert: true,
+      });
+
+      // Refresh to the anime details card
+      const updatedAnime = await getAnimeByIdOrSlug(anime.id) || anime;
+      const { captionHtml, replyMarkup } = await buildAnimeDetailsCard(updatedAnime, chatId);
+      if (messageId) {
+        await telegramApiCall('editMessageCaption', {
+          chat_id: chatId,
+          message_id: messageId,
+          caption: captionHtml,
+          parse_mode: 'HTML',
+          reply_markup: replyMarkup,
+        }).catch(() => {});
+      }
+    }
   } else if (data.startsWith('anime_comment_')) {
     await telegramApiCall('answerCallbackQuery', {
       callback_query_id: id,
@@ -1234,14 +1374,17 @@ ${E.NEW} <i>Qo'shilgan epizodlar bir zumda saytda ham, botda ham tomosha qilish 
 // generateWatcherNames replaced by real tracking
 
 // Format anime details card matching Screenshot 1
-function buildAnimeDetailsCard(anime: any) {
+async function buildAnimeDetailsCard(anime: any, userId?: number | string) {
   const episodesCount = anime.total_episodes || anime.current_episode || 12;
-  const ratingVal = typeof anime.rating === 'number' ? anime.rating.toFixed(2) : (anime.rating || '8.29');
-  const viewsVal = formatViewsForSearch(anime.views_count, anime.id);
+  const ratingStats = await getAnimeRatingStats(anime.id);
+  const ratingVal = ratingStats.avgRating ? ratingStats.avgRating.toFixed(1) : (typeof anime.rating === 'number' ? anime.rating.toFixed(1) : (anime.rating || '8.5'));
+  const votesCount = ratingStats.totalVotes || (anime.views_count ? Math.floor(anime.views_count / 20) + 1 : 12);
+  const viewsVal = formatViewsForSearch(votesCount, anime.id);
+
   const genresList = (anime.genres && anime.genres.length > 0) ? anime.genres : ['Jangari', 'Sarguzasht', 'Fantaziya', 'Shonen'];
   const genresText = genresList.slice(0, 5).join(' • ');
-  const yearText = anime.year || 2007;
-  const durationText = anime.duration || '23 daq.';
+  const yearText = anime.year || 2024;
+  const durationText = anime.duration || '24 daq.';
   const typeText = anime.type || 'TV serial';
   const statusText = anime.status === 'Davom etmoqda' ? 'Davom etmoqda' : 'Tugal.';
   const ageText = anime.age_rating ? `${anime.age_rating} yoshdan kattalar uchun` : '13 yoshdan kattalar uchun';
@@ -1256,7 +1399,11 @@ MyAnimeList: ${E.STAR} ${ratingVal} ( ${viewsVal} ovoz ) ❞</blockquote>
 <blockquote>${E.CHECK_MONO} ${escapeHtml(statusText)} / Tugal. ( Animem / Manba ) ❞</blockquote>
 <blockquote>${E.WARN_YELLOW} ${escapeHtml(ageText)} ❞</blockquote>`;
 
-  const favoritesCount = Math.floor(anime.views_count ? anime.views_count / 35 : 496);
+  const favoritesCount = await getFavoritesCount(anime.id);
+  const isFav = userId ? await isAnimeFavorited(userId, anime.id) : false;
+  const favIcon = isFav ? '❤️' : '🤍';
+  const userRate = userId ? await getUserRating(userId, anime.id) : null;
+  const rateBtnText = userRate ? `⭐ Baholandi (${userRate}/10)` : `⭐ Baholash`;
 
   const replyMarkup = {
     inline_keyboard: [
@@ -1268,15 +1415,11 @@ MyAnimeList: ${E.STAR} ${ratingVal} ( ${viewsVal} ovoz ) ❞</blockquote>
         },
       ],
       [
-        { text: '💬 Sharhlash', callback_data: `anime_comment_${anime.id}`, style: 'primary' },
-        { text: '⭐ Baholash', callback_data: `anime_rate_${anime.id}`, style: 'primary' },
+        { text: rateBtnText, callback_data: `anime_rate_${anime.id}`, style: 'primary' },
+        { text: `${favIcon} Sevimlilar ( ${favoritesCount} )`, callback_data: `anime_fav_${anime.id}`, style: 'primary' },
       ],
       [
-        { text: `❤️ Obuna bo'. ( ${favoritesCount} )`, callback_data: `anime_fav_${anime.id}`, style: 'primary' },
         { text: '🔍 Anime qidiruv ↗', switch_inline_query_current_chat: '', style: 'primary' },
-      ],
-
-      [
         { text: '🏠 Menyu', callback_data: 'btn_main_menu', style: 'primary' },
       ],
     ],
@@ -1286,7 +1429,7 @@ MyAnimeList: ${E.STAR} ${ratingVal} ( ${viewsVal} ovoz ) ❞</blockquote>
 }
 
 async function sendAnimeDetails(chatId: number | string, anime: any, messageId?: number) {
-  const { captionHtml, replyMarkup } = buildAnimeDetailsCard(anime);
+  const { captionHtml, replyMarkup } = await buildAnimeDetailsCard(anime, chatId);
 
   if (messageId) {
     try {
@@ -1432,7 +1575,7 @@ ${hasPass
 }
 
 // Handle Play Episode with Animem Pass VIP Download Logic
-async function handlePlayEpisode(chatId: number | string, anime: any, ep: string | number, page = 1, messageId?: number) {
+async function handlePlayEpisode(chatId: number | string, anime: any, ep: string | number, page = 1, messageId?: number, prevCaption?: string) {
   const passExp = await getUserPassDb(chatId);
   const hasPass = passExp > Date.now();
   const totalEpisodes = anime.total_episodes || anime.current_episode || 12;
@@ -1448,11 +1591,43 @@ async function handlePlayEpisode(chatId: number | string, anime: any, ep: string
   if (hasPass) {
     // ==========================================
     // PASS BOR ODAM (VIP USER)
-    // 1-epizod tanlansa video chiqadi.
-    // 2-epizod tanlansa, 1-epizod O'CHMAYDI (tepada qoladi)!
-    // 2-epizod yangi xabar bo'lib tushadi.
-    // Yuklab olish / forward qilishga to'liq ruxsat (protect_content: false).
+    // 1. Agar avvalgi xabar (messageId) mavjud bo'lsa:
+    //    - Tepada qolgan epizodning barcha tugmalari yo'qoladi (inline_keyboard bo'shatiladi).
+    //    - Tepada qolgan epizod caption'i faqat Anime nomi va qismiga qisqartirib qoldiriladi.
+    // 2. Yangi tanlangan epizod pastga yangi xabar bo'lib tushadi.
+    // 3. Yangi epizod ostida barcha tugmalar (boshqa qismlar, menyu va h.k.) bo'ladi.
+    // 4. Yuklab olish / saqlash / forward qilishga to'liq ruxsat (protect_content: false).
     // ==========================================
+    if (messageId) {
+      try {
+        let prevEpNum: string | null = null;
+        if (prevCaption) {
+          const match = prevCaption.match(/Epizod\s*(\d+)/i);
+          if (match) prevEpNum = match[1];
+        }
+        const cleanOldCaption = prevEpNum
+          ? `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>\n<blockquote>${E.VIDEO_MONO} Epizod ${prevEpNum} / ${totalEpisodes} ❞</blockquote>`
+          : `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>`;
+
+        await telegramApiCall('editMessageCaption', {
+          chat_id: chatId,
+          message_id: messageId,
+          caption: cleanOldCaption,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [] },
+        });
+      } catch (err) {
+        // Fallback: Faqat tugmalarni olib tashlash
+        try {
+          await telegramApiCall('editMessageReplyMarkup', {
+            chat_id: chatId,
+            message_id: messageId,
+            reply_markup: { inline_keyboard: [] },
+          });
+        } catch {}
+      }
+    }
+
     const vipCaption = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
 <blockquote>${E.VIDEO_MONO} Epizod ${epNum} / ${totalEpisodes} ❞</blockquote>
 <blockquote>${E.CARD_MONO} Holati: <b>Animem Pass VIP (Yuklab olish ochiq ${E.CHECK})</b> ❞</blockquote>
@@ -1482,17 +1657,18 @@ ${escapeHtml(watchersText)} ❞</blockquote>
   } else {
     // ==========================================
     // PASS YO'Q ODAM (FREE USER)
-    // 1-epizod tanlansa rasm/menyu o'rnida 1-epizod paydo bo'ladi.
-    // 2-epizod tanlansa, 1-epizod O'CHIB KETADI (deleteMessage), o'rniga 2-epizod paydo bo'ladi!
-    // Yuklab olish, saqlash, forward qilish taqiqlanadi (protect_content: true).
+    // 1. Yangi epizod tanlanganda avvalgi xabar O'CHIB KETADI (deleteMessage).
+    // 2. Yuklab olish, saqlash, forward qilish qat'iyan taqiqlanadi (protect_content: true).
+    // 3. Faqat bitta joriy epizod ko'rinadi.
     // ==========================================
     const freeCaption = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
 <blockquote>${E.VIDEO_MONO} Epizod ${epNum} / ${totalEpisodes} ❞</blockquote>
+<blockquote>🔒 Holati: <b>Cheklangan (Yuklab olish taqiqlangan)</b> ❞</blockquote>
 <blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
 ${escapeHtml(watchersText)} ❞</blockquote>
-<i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling </i>👇`;
+<i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling va qismlar o'chmaydi </i>👇`;
 
-    // Free userda avvalgi xabar (rasm yoki 1-epizod) o'chiriladi
+    // Free userda avvalgi xabar o'chiriladi
     if (messageId) {
       try {
         await telegramApiCall('deleteMessage', { chat_id: chatId, message_id: messageId });

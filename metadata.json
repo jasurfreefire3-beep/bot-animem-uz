@@ -1,6 +1,6 @@
 {
   "name": "Animem Uz Bot",
-  "description": "Animem Uz Bot - O'zbekistondagi eng yirik anime platformasi va Telegram bot integratsiyasi",
+  "description": "Animem — Anime Olamiga Ochilgan Sehrli Portal • O'zbekcha Dublyaj & Full HD Kinoteatr",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

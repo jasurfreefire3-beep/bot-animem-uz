@@ -133,6 +133,28 @@ export async function testAndInitConnection(customConfig?: any) {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS favorites (
+        telegram_id BIGINT NOT NULL,
+        anime_id INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (telegram_id, anime_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_favorites_anime ON favorites(anime_id);
+      CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(telegram_id);
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ratings (
+        telegram_id BIGINT NOT NULL,
+        anime_id INTEGER NOT NULL,
+        rating INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (telegram_id, anime_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_ratings_anime ON ratings(anime_id);
+    `);
+
 
     client.release();
     isConnected = true;
@@ -685,5 +707,227 @@ export async function getImageFromDatabase(filename: string): Promise<{ mimeType
   }
 
   return null;
+}
+
+// ==========================================
+// Favorites (Sevimlilar) System
+// ==========================================
+const memoryUserFavorites = new Map<string, Set<number>>();
+const memoryAnimeFavCounts = new Map<number, number>();
+
+export async function toggleFavorite(telegramId: number | string, animeId: number): Promise<{ isFavorited: boolean; count: number }> {
+  const strId = String(telegramId);
+  const numTgId = Number(telegramId);
+  const numAnimeId = Number(animeId);
+
+  let isFavorited = false;
+  try {
+    if (isConnected) {
+      const p = getPool();
+      // Check if already favorited
+      const existing = await p.query('SELECT 1 FROM favorites WHERE telegram_id = $1 AND anime_id = $2', [numTgId, numAnimeId]);
+      if (existing.rows.length > 0) {
+        await p.query('DELETE FROM favorites WHERE telegram_id = $1 AND anime_id = $2', [numTgId, numAnimeId]);
+        isFavorited = false;
+      } else {
+        await p.query('INSERT INTO favorites (telegram_id, anime_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [numTgId, numAnimeId]);
+        isFavorited = true;
+      }
+      const countRes = await p.query('SELECT COUNT(*) as c FROM favorites WHERE anime_id = $1', [numAnimeId]);
+      const count = parseInt(countRes.rows[0]?.c, 10) || 0;
+      memoryAnimeFavCounts.set(numAnimeId, count);
+      return { isFavorited, count };
+    }
+  } catch (e: any) {
+    console.warn('toggleFavorite DB error:', e.message);
+  }
+
+  // Fallback in-memory
+  if (!memoryUserFavorites.has(strId)) {
+    memoryUserFavorites.set(strId, new Set());
+  }
+  const favSet = memoryUserFavorites.get(strId)!;
+  let currentCount = memoryAnimeFavCounts.get(numAnimeId) || 0;
+
+  if (favSet.has(numAnimeId)) {
+    favSet.delete(numAnimeId);
+    isFavorited = false;
+    currentCount = Math.max(0, currentCount - 1);
+  } else {
+    favSet.add(numAnimeId);
+    isFavorited = true;
+    currentCount += 1;
+  }
+  memoryAnimeFavCounts.set(numAnimeId, currentCount);
+
+  return { isFavorited, count: currentCount };
+}
+
+export async function isAnimeFavorited(telegramId: number | string, animeId: number): Promise<boolean> {
+  const strId = String(telegramId);
+  const numTgId = Number(telegramId);
+  const numAnimeId = Number(animeId);
+
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const res = await p.query('SELECT 1 FROM favorites WHERE telegram_id = $1 AND anime_id = $2', [numTgId, numAnimeId]);
+      return res.rows.length > 0;
+    }
+  } catch (e: any) {
+    console.warn('isAnimeFavorited DB error:', e.message);
+  }
+
+  return memoryUserFavorites.get(strId)?.has(numAnimeId) || false;
+}
+
+export async function getFavoritesCount(animeId: number): Promise<number> {
+  const numAnimeId = Number(animeId);
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const countRes = await p.query('SELECT COUNT(*) as c FROM favorites WHERE anime_id = $1', [numAnimeId]);
+      return parseInt(countRes.rows[0]?.c, 10) || 0;
+    }
+  } catch (e: any) {
+    console.warn('getFavoritesCount DB error:', e.message);
+  }
+
+  return memoryAnimeFavCounts.get(numAnimeId) || 0;
+}
+
+export async function getUserFavorites(telegramId: number | string): Promise<any[]> {
+  const strId = String(telegramId);
+  const numTgId = Number(telegramId);
+
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const res = await p.query(
+        `SELECT a.id, a.slug, a.title, a.category, a.views_count, a.rating, a.data
+         FROM favorites f
+         JOIN animes a ON f.anime_id = a.id
+         WHERE f.telegram_id = $1
+         ORDER BY f.created_at DESC`,
+        [numTgId]
+      );
+      return res.rows.map(r => ({
+        id: r.id,
+        slug: r.slug,
+        title: r.title,
+        category: r.category,
+        views_count: r.views_count,
+        rating: typeof r.rating === 'string' ? parseFloat(r.rating) : r.rating,
+        ...(typeof r.data === 'string' ? JSON.parse(r.data) : r.data),
+      }));
+    }
+  } catch (e: any) {
+    console.warn('getUserFavorites DB error:', e.message);
+  }
+
+  const set = memoryUserFavorites.get(strId);
+  if (!set || set.size === 0) return [];
+  const animeIds = Array.from(set);
+  const list: any[] = [];
+  for (const id of animeIds) {
+    const a = await getAnimeByIdOrSlug(id);
+    if (a) list.push(a);
+  }
+  return list;
+}
+
+export async function getUserFavoritesCount(telegramId: number | string): Promise<number> {
+  const numTgId = Number(telegramId);
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const res = await p.query('SELECT COUNT(*) as c FROM favorites WHERE telegram_id = $1', [numTgId]);
+      return parseInt(res.rows[0]?.c, 10) || 0;
+    }
+  } catch (e: any) {}
+  return memoryUserFavorites.get(String(telegramId))?.size || 0;
+}
+
+// ==========================================
+// Ratings (Baholash 1-10) System
+// ==========================================
+const memoryRatings = new Map<string, number>(); // `${tgId}_${animeId}` -> rating
+
+export async function saveUserRating(telegramId: number | string, animeId: number, rating: number): Promise<{ avgRating: number; totalVotes: number; userRating: number }> {
+  const cleanRating = Math.max(1, Math.min(10, Math.round(rating)));
+  const numTgId = Number(telegramId);
+  const numAnimeId = Number(animeId);
+  const strKey = `${telegramId}_${numAnimeId}`;
+
+  memoryRatings.set(strKey, cleanRating);
+
+  let avgRating = cleanRating;
+  let totalVotes = 1;
+
+  try {
+    if (isConnected) {
+      const p = getPool();
+      await p.query(
+        `INSERT INTO ratings (telegram_id, anime_id, rating)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (telegram_id, anime_id) DO UPDATE SET rating = EXCLUDED.rating, created_at = CURRENT_TIMESTAMP`,
+        [numTgId, numAnimeId, cleanRating]
+      );
+
+      const statsRes = await p.query('SELECT COUNT(*) as total, AVG(rating) as avg FROM ratings WHERE anime_id = $1', [numAnimeId]);
+      totalVotes = parseInt(statsRes.rows[0]?.total, 10) || 1;
+      avgRating = parseFloat(parseFloat(statsRes.rows[0]?.avg || '0').toFixed(1));
+
+      // Update anime's rating in animes table
+      await p.query(
+        `UPDATE animes SET rating = $1, data = jsonb_set(data, '{rating}', $2::jsonb), updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+        [avgRating, JSON.stringify(avgRating), numAnimeId]
+      );
+    }
+  } catch (e: any) {
+    console.warn('saveUserRating DB error:', e.message);
+  }
+
+  // Also update in-memory anime if present
+  const anime = await getAnimeByIdOrSlug(numAnimeId);
+  if (anime) {
+    anime.rating = avgRating;
+  }
+
+  return { avgRating, totalVotes, userRating: cleanRating };
+}
+
+export async function getAnimeRatingStats(animeId: number): Promise<{ avgRating: number; totalVotes: number }> {
+  const numAnimeId = Number(animeId);
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const statsRes = await p.query('SELECT COUNT(*) as total, AVG(rating) as avg FROM ratings WHERE anime_id = $1', [numAnimeId]);
+      const totalVotes = parseInt(statsRes.rows[0]?.total, 10) || 0;
+      if (totalVotes > 0) {
+        const avgRating = parseFloat(parseFloat(statsRes.rows[0]?.avg || '0').toFixed(1));
+        return { avgRating, totalVotes };
+      }
+    }
+  } catch (e: any) {
+    console.warn('getAnimeRatingStats DB error:', e.message);
+  }
+
+  const anime = await getAnimeByIdOrSlug(numAnimeId);
+  const defaultRating = anime && typeof anime.rating === 'number' ? anime.rating : 8.5;
+  return { avgRating: defaultRating, totalVotes: anime?.views_count ? Math.floor(anime.views_count / 15) + 1 : 12 };
+}
+
+export async function getUserRating(telegramId: number | string, animeId: number): Promise<number | null> {
+  const numTgId = Number(telegramId);
+  const numAnimeId = Number(animeId);
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const res = await p.query('SELECT rating FROM ratings WHERE telegram_id = $1 AND anime_id = $2', [numTgId, numAnimeId]);
+      if (res.rows.length > 0) return res.rows[0].rating;
+    }
+  } catch (e: any) {}
+  return memoryRatings.get(`${telegramId}_${numAnimeId}`) || null;
 }
 
