@@ -21,8 +21,6 @@ RUN npm install --production
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/server ./server
-COPY --from=builder /app/server.ts ./
 
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "dist/server.cjs"]
