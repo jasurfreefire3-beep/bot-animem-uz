@@ -14,6 +14,7 @@ import { PassRequiredModal } from './components/PassRequiredModal';
 import { SearchModal } from './components/SearchModal';
 import { AddAnimeModal } from './components/AddAnimeModal';
 import { DatabaseManagerModal } from './components/DatabaseManagerModal';
+import { LoadingScreen } from './components/LoadingScreen';
 import { Footer } from './components/Footer';
 import AdminPage from './pages/AdminPage';
 import { Anime, CategorySection, DBStatus } from './types';
@@ -181,6 +182,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0a0614] text-[#e2e0ea] flex flex-col selection:bg-purple-600 selection:text-white">
+      {/* Luxury Anime Loading Screen upon entering website */}
+      <LoadingScreen isLoading={isLoading} />
       
       {/* Top Sticky Navbar with Animem Uz Bot logo & search */}
       <Navbar

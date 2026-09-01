@@ -342,43 +342,6 @@ export const AnimeDetailPage: React.FC<AnimeDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Section: EPIZODLAR */}
-      <div className="mb-7">
-        <div className="flex items-center justify-between mb-3.5">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-4 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
-            <h3 className="text-xs sm:text-sm font-black tracking-wider uppercase text-white font-sans">
-              EPIZODLAR
-            </h3>
-          </div>
-          <span className="text-[10px] sm:text-xs text-purple-400 font-bold">
-            {anime.current_episode} / {anime.total_episodes} qismlar
-          </span>
-        </div>
-
-        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-          {Array.from({ length: anime.total_episodes || 12 }).map((_, idx) => {
-            const epNum = idx + 1;
-            const isAvailable = epNum <= (anime.current_episode || 0);
-            const isSelected = selectedEpisode === epNum;
-
-            return (
-              <button
-                key={epNum}
-                onClick={() => handleEpisodeClick(epNum)}
-                className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
-                  isSelected
-                    ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_12px_rgba(37,99,235,0.4)]'
-                    : 'bg-[#150f26] text-purple-300/70 border-purple-900/30 hover:border-purple-600/50 hover:text-white'
-                } ${!isAvailable && 'opacity-60'}`}
-              >
-                {epNum}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Section 3: PREMIUM FEATURES */}
       <div className="mb-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="flex flex-col gap-2">

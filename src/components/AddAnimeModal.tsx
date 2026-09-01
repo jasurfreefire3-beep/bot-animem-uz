@@ -65,53 +65,59 @@ export const AddAnimeModal: React.FC<AddAnimeModalProps> = ({
   const [successMsg, setSuccessMsg] = useState('');
   const [error, setError] = useState('');
 
-  const processFile = (file: File) => {
+  const [uploadStatusText, setUploadStatusText] = useState('');
+
+  const processFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       setError('Iltimos, faqat rasm fayllarini yuklang (PNG, JPG, WEBP)');
       return;
     }
 
     setIsProcessingImage(true);
+    setUploadStatusText("Rasm tayyorlanmoqda va PostgreSQL bazasiga yuklanmoqda...");
     setError('');
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new window.Image();
-      img.onload = () => {
-        // Create canvas to resize to reasonable poster dimensions (max 600px width, max 900px height)
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxW = 600;
-        const maxH = 900;
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64Data = e.target?.result as string;
+        try {
+          const res = await fetch('/api/upload/image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              data: base64Data,
+              filename: file.name,
+              mimeType: file.type || 'image/jpeg',
+            }),
+          });
 
-        if (width > maxW || height > maxH) {
-          const ratio = Math.min(maxW / width, maxH / height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          // Export as compressed WebP or JPEG Data URL
-          const base64Data = canvas.toDataURL('image/webp', 0.85);
+          const resData = await res.json();
+          if (res.ok && resData.url) {
+            setPosterUrl(resData.url);
+            setImageSizeKB(resData.size_kb || Math.round(file.size / 1024));
+            setSuccessMsg(`Rasm PostgreSQL bazasida saqlandi: ${resData.filename}`);
+            setTimeout(() => setSuccessMsg(''), 4000);
+          } else {
+            // Fallback to local base64 if server upload had an issue
+            setPosterUrl(base64Data);
+            setImageSizeKB(Math.round(file.size / 1024));
+          }
+        } catch (uploadErr: any) {
+          console.warn('Image upload error, fallback to data url:', uploadErr);
           setPosterUrl(base64Data);
-          // Calculate approx size in KB
-          const sizeInKB = Math.round((base64Data.length * 3) / 4 / 1024);
-          setImageSizeKB(sizeInKB);
+          setImageSizeKB(Math.round(file.size / 1024));
+        } finally {
+          setIsProcessingImage(false);
+          setUploadStatusText('');
         }
-        setIsProcessingImage(false);
       };
-      img.onerror = () => {
-        setIsProcessingImage(false);
-        setError("Rasmni o'qishda xatolik yuz berdi");
-      };
-      img.src = e.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setIsProcessingImage(false);
+      setUploadStatusText('');
+      setError("Rasmni yuklashda xatolik yuz berdi: " + (err.message || ''));
+    }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {

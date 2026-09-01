@@ -13,7 +13,9 @@ import {
   updateAnime,
   deleteAnime,
   getDatabaseStatus, 
-  generateFullSqlDump 
+  generateFullSqlDump,
+  saveImageToDatabase,
+  getImageFromDatabase
 } from './server/db.js';
 import { generateTelegramLinks, generateEpisodeTelegramLink, DEFAULT_BOT_USERNAME } from './server/telegram.js';
 import { initTelegramBot } from './server/bot.js';
@@ -98,6 +100,85 @@ async function startServer() {
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', service: 'Animem Uz Bot API' });
+  });
+
+  // Serve image from database
+  const handleServeImage = async (req: express.Request, res: express.Response) => {
+    try {
+      const filename = req.params.filename;
+      if (!filename) {
+        return res.status(400).send('Filename required');
+      }
+
+      const img = await getImageFromDatabase(filename);
+      if (!img) {
+        return res.status(404).send('Image not found');
+      }
+
+      res.setHeader('Content-Type', img.mimeType || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(img.data);
+    } catch (err: any) {
+      console.warn('handleServeImage error:', err.message);
+      res.status(500).send('Error loading image');
+    }
+  };
+
+  app.get('/api/image/:filename', handleServeImage);
+  app.get('/api/images/:filename', handleServeImage);
+
+  // Upload image directly to PostgreSQL database (data table, not disk)
+  app.post('/api/upload/image', async (req, res) => {
+    try {
+      const { data, filename: originalFilename, mimeType: userMimeType } = req.body;
+      if (!data) {
+        return res.status(400).json({ error: 'Rasm ma\'lumoti (data) topilmadi' });
+      }
+
+      let buffer: Buffer;
+      let mimeType = userMimeType || 'image/jpeg';
+
+      if (typeof data === 'string' && data.startsWith('data:')) {
+        const matches = data.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          buffer = Buffer.from(matches[2], 'base64');
+        } else {
+          const commaIdx = data.indexOf(',');
+          buffer = Buffer.from(commaIdx !== -1 ? data.slice(commaIdx + 1) : data, 'base64');
+        }
+      } else if (typeof data === 'string') {
+        buffer = Buffer.from(data, 'base64');
+      } else {
+        buffer = Buffer.from(data);
+      }
+
+      // Generate clean filename
+      const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : mimeType.includes('gif') ? 'gif' : 'jpg';
+      let cleanName = (originalFilename || `poster_${Date.now()}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9_.-]+/g, '_')
+        .replace(/\.[a-z0-9]+$/i, '');
+      
+      const filename = `${Date.now()}_${cleanName}.${ext}`;
+
+      // Save to database
+      await saveImageToDatabase(filename, mimeType, buffer);
+
+      const fullUrl = `https://bot.animem.uz/api/image/${filename}`;
+      const localUrl = `/api/image/${filename}`;
+
+      res.json({
+        success: true,
+        filename,
+        url: fullUrl,
+        local_url: localUrl,
+        size_kb: Math.round(buffer.length / 1024)
+      });
+    } catch (err: any) {
+      console.error('API image upload error:', err);
+      res.status(500).json({ error: err.message || 'Rasm yuklashda xatolik' });
+    }
   });
 
   // Database Connection Status

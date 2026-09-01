@@ -26,9 +26,9 @@ export function isAdmin(userId: number | string | undefined | null): boolean {
   return ADMIN_IDS.includes(numId);
 }
 
-// High quality Animem Banner image
-const BANNER_URL = 'https://api.animem.uz/api/images/1788139109860_8n3qu8t';
-const MASCOT_URL = 'https://api.animem.uz/api/images/1788139109860_8n3qu8t';
+// High quality Animem Banner & Mascot images for Telegram Bot
+const BANNER_URL = 'https://pub-a106e00b56aa4c98ade06693352e0672.r2.dev/61b6ca58-dd33-4548-80ed-13dd7f21fcd2.jpeg';
+const MASCOT_URL = 'https://pub-a106e00b56aa4c98ade06693352e0672.r2.dev/61b6ca58-dd33-4548-80ed-13dd7f21fcd2.jpeg';
 
 let isPolling = false;
 let lastUpdateId = 0;
@@ -1182,6 +1182,24 @@ ${E.NEW} <i>Qo'shilgan epizodlar bir zumda saytda ham, botda ham tomosha qilish 
     const page = parseInt(parts[2] || '1', 10);
     const anime = await getAnimeByIdOrSlug(animeId);
     if (anime) {
+      const epNum = Number(ep) || 1;
+      const epData = (anime.episode_files && anime.episode_files[epNum]) || null;
+      const hasFile = !!epData?.file_id;
+      const currEp = Number(anime.current_episode) || 0;
+      
+      // Check if episode is not uploaded yet
+      const isNotUploaded = (currEp > 0 && epNum > currEp) || (!hasFile && anime.episode_files && Object.keys(anime.episode_files).length > 0);
+      
+      if (isNotUploaded) {
+        await telegramApiCall('answerCallbackQuery', {
+          callback_query_id: id,
+          text: `⚠️ Ushbu epizod (${epNum}-qism) hali qo'yilmagan! Tez orada joylanadi.`,
+          show_alert: true,
+        });
+        return;
+      }
+
+      await telegramApiCall('answerCallbackQuery', { callback_query_id: id });
       trackUser(chatId, '', anime.id);
       await handlePlayEpisode(chatId, anime, ep, page, messageId);
     }
@@ -1300,8 +1318,8 @@ async function sendAnimeDetails(chatId: number | string, anime: any, messageId?:
   });
 }
 
-// Episode player grid matching Screenshot 2
-async function sendWatchEpisodesGrid(chatId: number | string, anime: any, page = 1, messageId?: number) {
+// Episode keyboard generator with 3-column layout matching Screenshot
+function buildEpisodeKeyboard(anime: any, currentEp: number | string | null, page = 1, hasPass = false) {
   const totalEpisodes = anime.total_episodes || anime.current_episode || 12;
   const itemsPerPage = 12; // 3 columns x 4 rows
   const totalPages = Math.ceil(totalEpisodes / itemsPerPage) || 1;
@@ -1310,23 +1328,17 @@ async function sendWatchEpisodesGrid(chatId: number | string, anime: any, page =
   const startEp = (currentPage - 1) * itemsPerPage + 1;
   const endEp = Math.min(currentPage * itemsPerPage, totalEpisodes);
 
-  const { count: watchersCount, text: watchersText } = getRealWatchers(anime.id);
-
-  const captionHtml = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
-<blockquote>${E.VIDEO_MONO} Epizod ${startEp} / ${totalEpisodes} ❞</blockquote>
-<blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
-${escapeHtml(watchersText)} ❞</blockquote>
-<i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling </i>👇`;
-
-  // Build 3-column episode buttons grid
   const epRows: any[][] = [];
   let currentRow: any[] = [];
 
+  const curNum = currentEp !== null && currentEp !== undefined ? Number(currentEp) : null;
+
   for (let ep = startEp; ep <= endEp; ep++) {
+    const isPlaying = curNum === ep;
     currentRow.push({
-      text: `💽 ${ep} ep`,
+      text: isPlaying ? `▶️ ${ep} ep` : `💽 ${ep} ep`,
       callback_data: `play_${anime.id}_${ep}_${currentPage}`,
-      style: 'primary',
+      style: isPlaying ? 'success' : 'primary',
     });
     if (currentRow.length === 3) {
       epRows.push(currentRow);
@@ -1349,9 +1361,15 @@ ${escapeHtml(watchersText)} ❞</blockquote>
   epRows.push(navRow);
 
   // Animem Pass banner button
-  epRows.push([
-    { text: '🎫 Animem Pass', callback_data: 'btn_pass', style: 'success' },
-  ]);
+  if (hasPass) {
+    epRows.push([
+      { text: '✨ Animem Pass • Yuklab olish ochiq ✅', callback_data: 'btn_pass', style: 'success' },
+    ]);
+  } else {
+    epRows.push([
+      { text: '💳 Animem Pass', callback_data: 'btn_pass', style: 'success' },
+    ]);
+  }
 
   // Bottom action buttons
   epRows.push([
@@ -1359,7 +1377,31 @@ ${escapeHtml(watchersText)} ❞</blockquote>
     { text: '⚠️ Muammo', callback_data: `anime_report_${anime.id}`, style: 'danger' },
   ]);
 
-  const replyMarkup = { inline_keyboard: epRows };
+  return { inline_keyboard: epRows };
+}
+
+// Episode player grid matching Screenshot 2
+async function sendWatchEpisodesGrid(chatId: number | string, anime: any, page = 1, messageId?: number) {
+  const totalEpisodes = anime.total_episodes || anime.current_episode || 12;
+  const itemsPerPage = 12; // 3 columns x 4 rows
+  const totalPages = Math.ceil(totalEpisodes / itemsPerPage) || 1;
+  const currentPage = Math.max(1, Math.min(page, totalPages));
+
+  const startEp = (currentPage - 1) * itemsPerPage + 1;
+
+  const { count: watchersCount, text: watchersText } = getRealWatchers(anime.id);
+  const passExp = await getUserPassDb(chatId);
+  const hasPass = passExp > Date.now();
+
+  const captionHtml = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
+<blockquote>${E.VIDEO_MONO} Epizod ${startEp} / ${totalEpisodes} ❞</blockquote>
+<blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
+${escapeHtml(watchersText)} ❞</blockquote>
+${hasPass
+  ? `<i>${E.NEW} Animem Pass VIP obunasi faol! Barcha epizodlarni to'g'ridan-to'g'ri yuklab olishingiz mumkin.</i>`
+  : `<i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling </i>👇`}`;
+
+  const replyMarkup = buildEpisodeKeyboard(anime, null, currentPage, hasPass);
 
   if (messageId) {
     try {
@@ -1394,97 +1436,87 @@ async function handlePlayEpisode(chatId: number | string, anime: any, ep: string
   const passExp = await getUserPassDb(chatId);
   const hasPass = passExp > Date.now();
   const totalEpisodes = anime.total_episodes || anime.current_episode || 12;
+  const epNum = Number(ep) || 1;
 
   // Check if real video file_id exists for this episode from the private channel
-  const epData = (anime.episode_files && anime.episode_files[ep]) || null;
+  const epData = (anime.episode_files && anime.episode_files[epNum]) || null;
   const fileId = epData?.file_id || null;
 
+  const { count: watchersCount, text: watchersText } = getRealWatchers(anime.id);
+  const replyMarkup = buildEpisodeKeyboard(anime, epNum, page, hasPass);
+
   if (hasPass) {
-    // VIP USER: Sends downloadable video file message one-by-one!
-    const vipText = `${E.CARD_MONO} <b>Animem Pass VIP • ${escapeHtml(anime.title)} — ${ep}-qism</b>
-
-<blockquote>${E.VIDEO_MONO} Epizod: <b>${ep} / ${totalEpisodes}</b>
-${E.FIRE} Sifat: <b>1080p Full HD (Maksimal)</b>
-${E.ARROW_UP} Holati: <b>Yuklab olish uchun tayyor ${E.CHECK}</b> ❞</blockquote>
-
-<i>${E.NEW} Siz VIP foydalanuvchisiz! Har bir epizodni bitta-bittalab to'g'ridan-to'g'ri yuklab olishingiz va saqlashingiz mumkin.</i>`;
-
-    const vipButtons: any[][] = [];
-    if (Number(ep) < totalEpisodes) {
-      vipButtons.push([
-        { text: `▶️ Keyingi qism (${Number(ep) + 1}-qism)`, callback_data: `vip_play_${anime.id}_${Number(ep) + 1}_${page}`, style: 'success' },
-      ]);
-    }
-    vipButtons.push([
-      { text: '📋 Qismlar ro\'yxati', callback_data: `vip_watch_${anime.id}_${page}`, style: 'primary' },
-      { text: '🏠 Asosiy menyu', callback_data: 'btn_main_menu', style: 'primary' },
-    ]);
+    // ==========================================
+    // PASS BOR ODAM (VIP USER)
+    // 1-epizod tanlansa video chiqadi.
+    // 2-epizod tanlansa, 1-epizod O'CHMAYDI (tepada qoladi)!
+    // 2-epizod yangi xabar bo'lib tushadi.
+    // Yuklab olish / forward qilishga to'liq ruxsat (protect_content: false).
+    // ==========================================
+    const vipCaption = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
+<blockquote>${E.VIDEO_MONO} Epizod ${epNum} / ${totalEpisodes} ❞</blockquote>
+<blockquote>${E.CARD_MONO} Holati: <b>Animem Pass VIP (Yuklab olish ochiq ${E.CHECK})</b> ❞</blockquote>
+<blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
+${escapeHtml(watchersText)} ❞</blockquote>
+<i>✨ Barcha epizodlarni to'g'ridan-to'g'ri Telegramda saqlab olishingiz mumkin.</i>`;
 
     if (fileId) {
-      // Send real video file directly from private channel!
       await telegramApiCall('sendVideo', {
         chat_id: chatId,
         video: fileId,
-        caption: vipText,
+        caption: vipCaption,
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: vipButtons },
+        reply_markup: replyMarkup,
+        protect_content: false,
       });
     } else {
-      // Send high-quality video message for download
       await telegramApiCall('sendPhoto', {
         chat_id: chatId,
         photo: anime.poster_url || BANNER_URL,
-        caption: vipText,
+        caption: vipCaption,
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: vipButtons },
+        reply_markup: replyMarkup,
+        protect_content: false,
       });
     }
   } else {
-    // FREE USER: Watches one-by-one in player, cannot download, previous gets replaced
-    const freeText = `▶️ <b>${escapeHtml(anime.title)} — ${ep}-qism ijro etilmoqda ${E.VIDEO_MONO}</b>
+    // ==========================================
+    // PASS YO'Q ODAM (FREE USER)
+    // 1-epizod tanlansa rasm/menyu o'rnida 1-epizod paydo bo'ladi.
+    // 2-epizod tanlansa, 1-epizod O'CHIB KETADI (deleteMessage), o'rniga 2-epizod paydo bo'ladi!
+    // Yuklab olish, saqlash, forward qilish taqiqlanadi (protect_content: true).
+    // ==========================================
+    const freeCaption = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
+<blockquote>${E.VIDEO_MONO} Epizod ${epNum} / ${totalEpisodes} ❞</blockquote>
+<blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
+${escapeHtml(watchersText)} ❞</blockquote>
+<i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling </i>👇`;
 
-<blockquote>${E.VIDEO_MONO} Epizod: <b>${ep} / ${totalEpisodes}</b>
-${E.KEY_MONO} Rejim: <b>Oddiy tomosha (Faqat bitta-bittalab)</b> ❞</blockquote>
-
-<i>${E.WARN_YELLOW} Sizda Animem Pass obunasi yo'qligi sababli videoni fayl sifatida yuklab ololmaysiz va avvalgi epizod o'chiriladi. Barcha epizodlarni to'g'ridan-to'g'ri Telegramda bitta-bittalab yuklab olish uchun Animem Pass xarid qiling!</i>`;
-
-    const freeButtons: any[][] = [];
-    if (Number(ep) < totalEpisodes) {
-      freeButtons.push([
-        { text: `▶️ Keyingi qism (${Number(ep) + 1}-qism)`, callback_data: `play_${anime.id}_${Number(ep) + 1}_${page}`, style: 'success' },
-      ]);
-    }
-    freeButtons.push(
-      [
-        { text: '🎫 Animem Pass olish (Yuklab olish uchun)', callback_data: 'btn_pass', style: 'success' },
-      ],
-      [
-        { text: '◀️ Qismlar ro\'yxatiga qaytish', callback_data: `watch_anime_${anime.id}_${page}`, style: 'primary' },
-        { text: '🏠 Bosh menyu', callback_data: 'btn_main_menu', style: 'primary' },
-      ]
-    );
-
-    // Delete previous message so only 1 episode remains for free users
+    // Free userda avvalgi xabar (rasm yoki 1-epizod) o'chiriladi
     if (messageId) {
-      await telegramApiCall('deleteMessage', { chat_id: chatId, message_id: messageId });
+      try {
+        await telegramApiCall('deleteMessage', { chat_id: chatId, message_id: messageId });
+      } catch (e) {
+        console.warn('deleteMessage for free user error:', e);
+      }
     }
 
     if (fileId) {
       await telegramApiCall('sendVideo', {
         chat_id: chatId,
         video: fileId,
-        caption: freeText,
+        caption: freeCaption,
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: freeButtons },
+        reply_markup: replyMarkup,
         protect_content: true,
       });
     } else {
       await telegramApiCall('sendPhoto', {
         chat_id: chatId,
         photo: anime.poster_url || BANNER_URL,
-        caption: freeText,
+        caption: freeCaption,
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: freeButtons },
+        reply_markup: replyMarkup,
         protect_content: true,
       });
     }

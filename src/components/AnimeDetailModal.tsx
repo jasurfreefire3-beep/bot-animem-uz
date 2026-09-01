@@ -358,38 +358,6 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Telegram Episodes Quick Launch Grid */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-4 bg-purple-500 rounded-full" />
-                <h3 className="text-xs font-black tracking-wider uppercase text-white font-['Outfit']">
-                  TELEGRAM ORQALI QISMLARNI TANLASH
-                </h3>
-              </div>
-              <span className="text-[11px] text-purple-400 font-medium">Barcha qismlar mavjud</span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              {Array.from({ length: Math.min(anime.total_episodes || 12, 12) }).map((_, idx) => {
-                const epNum = idx + 1;
-                const epLink = `https://t.me/${botUsername}?start=${anime.telegram_code || `anime_${anime.id}`}_ep${epNum}`;
-                return (
-                  <a
-                    key={epNum}
-                    href={epLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1.5 p-2 rounded-xl bg-[#17102b] hover:bg-purple-900/60 border border-purple-800/40 text-purple-200 hover:text-white text-xs font-bold transition-colors group"
-                  >
-                    <Send className="w-3 h-3 text-sky-400 group-hover:scale-110 transition-transform" />
-                    <span>{epNum}-qism</span>
-                  </a>
-                );
-              })}
-            </div>
-          </div>
-
           {/* PostgreSQL JSON Schema Inspector toggle (fulfills user request: anime malumotlar shu datada json formada saqlansi) */}
           <div className="pt-2 border-t border-purple-950">
             <button

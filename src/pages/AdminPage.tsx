@@ -13,6 +13,7 @@ export default function AdminPage() {
   const [animes, setAnimes] = useState<Anime[]>([]);
   const [isEditing, setIsEditing] = useState<Anime | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [formData, setFormData] = useState<Partial<Anime>>({});
 
@@ -93,6 +94,7 @@ export default function AdminPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSaving(true);
     
     // Process form data specific for our Anime structure
     const payload = {
@@ -113,9 +115,10 @@ export default function AdminPage() {
         });
         if (res.ok) {
           setIsEditing(null);
-          fetchAnimes();
+          await fetchAnimes();
         } else {
-          alert('Xatolik yuz berdi');
+          const err = await res.json().catch(() => ({}));
+          alert(err.error || 'Xatolik yuz berdi');
         }
       } else {
         // Prepare new anime defaults
@@ -131,13 +134,16 @@ export default function AdminPage() {
         });
         if (res.ok) {
           setIsAdding(false);
-          fetchAnimes();
+          await fetchAnimes();
         } else {
-          alert('Xatolik yuz berdi');
+          const err = await res.json().catch(() => ({}));
+          alert(err.error || 'Xatolik yuz berdi');
         }
       }
-    } catch (e) {
-      alert("Xatolik");
+    } catch (e: any) {
+      alert("Xatolik yuz berdi: " + (e.message || ''));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -336,14 +342,71 @@ export default function AdminPage() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Poster URL (Rasm)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-gray-400">Poster (Rasm)</label>
+                    <label className="text-xs text-purple-400 hover:text-purple-300 cursor-pointer flex items-center gap-1 font-semibold">
+                      📁 Qurilmadan yuklash
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = async (ev) => {
+                            const base64Data = ev.target?.result as string;
+                            try {
+                              const res = await fetch('/api/upload/image', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  data: base64Data,
+                                  filename: file.name,
+                                  mimeType: file.type || 'image/jpeg',
+                                }),
+                              });
+                              const resData = await res.json();
+                              if (res.ok && resData.url) {
+                                setFormData({
+                                  ...formData,
+                                  poster_url: resData.url,
+                                  banner_url: resData.url,
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  poster_url: base64Data,
+                                  banner_url: base64Data,
+                                });
+                              }
+                            } catch {
+                              setFormData({
+                                ...formData,
+                                poster_url: base64Data,
+                                banner_url: base64Data,
+                              });
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                  </div>
                   <input
                     type="text"
                     required
+                    placeholder="https://bot.animem.uz/api/image/... yoki qurilmadan yuklang"
                     value={formData.poster_url || ''}
                     onChange={e => setFormData({...formData, poster_url: e.target.value, banner_url: formData.banner_url || e.target.value})}
                     className="w-full bg-[#141414] border border-white/10 rounded-lg px-4 py-2.5 focus:border-primary focus:outline-none"
                   />
+                  {formData.poster_url && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <img src={formData.poster_url} alt="Preview" className="w-12 h-16 object-cover rounded border border-white/10" />
+                      <span className="text-[11px] text-green-400">✓ Rasm tanlandi</span>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1">Kategoriya</label>
@@ -417,9 +480,17 @@ export default function AdminPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium transition-colors"
+                  disabled={isSaving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-lg shadow-purple-900/30"
                 >
-                  Saqlash
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Saqlanmoqda...</span>
+                    </>
+                  ) : (
+                    <span>Saqlash</span>
+                  )}
                 </button>
               </div>
             </form>

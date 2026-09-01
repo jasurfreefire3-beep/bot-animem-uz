@@ -113,6 +113,17 @@ export async function testAndInitConnection(customConfig?: any) {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS images (
+        id SERIAL PRIMARY KEY,
+        filename VARCHAR(255) UNIQUE NOT NULL,
+        mime_type VARCHAR(100) NOT NULL,
+        data BYTEA NOT NULL,
+        size_bytes INTEGER,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         telegram_id BIGINT PRIMARY KEY,
         first_name VARCHAR(255),
@@ -627,3 +638,52 @@ export async function removeMandatoryChannel(id: number): Promise<boolean> {
   memoryChannels = memoryChannels.filter(c => c.id !== id);
   return true;
 }
+
+// In-memory cache for ultra fast image serving
+const imageMemoryCache = new Map<string, { mimeType: string; data: Buffer }>();
+
+export async function saveImageToDatabase(filename: string, mimeType: string, buffer: Buffer): Promise<{ success: boolean; filename: string }> {
+  // Save to memory cache immediately
+  imageMemoryCache.set(filename, { mimeType, data: buffer });
+
+  try {
+    if (isConnected) {
+      const p = getPool();
+      await p.query(
+        `INSERT INTO images (filename, mime_type, data, size_bytes) 
+         VALUES ($1, $2, $3, $4) 
+         ON CONFLICT (filename) DO UPDATE SET mime_type = EXCLUDED.mime_type, data = EXCLUDED.data, size_bytes = EXCLUDED.size_bytes`,
+        [filename, mimeType, buffer, buffer.length]
+      );
+      return { success: true, filename };
+    }
+  } catch (e: any) {
+    console.warn('saveImageToDatabase error:', e.message);
+  }
+  return { success: true, filename };
+}
+
+export async function getImageFromDatabase(filename: string): Promise<{ mimeType: string; data: Buffer } | null> {
+  // Check memory cache first
+  if (imageMemoryCache.has(filename)) {
+    return imageMemoryCache.get(filename)!;
+  }
+
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const res = await p.query('SELECT mime_type, data FROM images WHERE filename = $1 LIMIT 1', [filename]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        const img = { mimeType: row.mime_type, data: row.data };
+        imageMemoryCache.set(filename, img);
+        return img;
+      }
+    }
+  } catch (e: any) {
+    console.warn('getImageFromDatabase error:', e.message);
+  }
+
+  return null;
+}
+
