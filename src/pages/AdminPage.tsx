@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Plus, Edit, Trash2, LogOut, Loader2 } from 'lucide-react';
+import { Settings, Plus, Edit, Trash2, LogOut, Loader2, ShieldAlert, ShieldCheck, Lock, Clock } from 'lucide-react';
 import type { Anime } from '../types';
 
 export default function AdminPage() {
@@ -8,6 +8,8 @@ export default function AdminPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [lockoutRemainingMs, setLockoutRemainingMs] = useState<number>(0);
 
   // Dashboard state
   const [animes, setAnimes] = useState<Anime[]>([]);
@@ -18,6 +20,19 @@ export default function AdminPage() {
   const [formData, setFormData] = useState<Partial<Anime>>({});
 
   useEffect(() => {
+    // Check lock status on load
+    fetch('/api/admin/status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.isLocked && data.remainingMs > 0) {
+          setLockoutRemainingMs(data.remainingMs);
+          setError(data.message || 'Tizim bloklangan. 30 daqiqadan so\'ng qayta urinib ko\'ring.');
+        } else if (typeof data.remainingAttempts === 'number') {
+          setRemainingAttempts(data.remainingAttempts);
+        }
+      })
+      .catch(() => {});
+
     if (token) {
       fetch('/api/admin/verify', {
         headers: { Authorization: `Bearer ${token}` }
@@ -35,6 +50,30 @@ export default function AdminPage() {
     }
   }, [token]);
 
+  // Real-time Countdown timer for lockout
+  useEffect(() => {
+    if (lockoutRemainingMs <= 0) return;
+    const interval = setInterval(() => {
+      setLockoutRemainingMs(prev => {
+        if (prev <= 1000) {
+          clearInterval(interval);
+          setError('');
+          setRemainingAttempts(5);
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lockoutRemainingMs]);
+
+  const formatLockoutTimer = (ms: number) => {
+    const totalSec = Math.ceil(ms / 1000);
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const fetchAnimes = async () => {
     try {
       const res = await fetch('/api/animes');
@@ -47,6 +86,7 @@ export default function AdminPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (lockoutRemainingMs > 0) return;
     setError('');
     setIsLoading(true);
     try {
@@ -59,8 +99,16 @@ export default function AdminPage() {
       if (res.ok) {
         localStorage.setItem('admin_token', data.token);
         setToken(data.token);
+        setIsAuthenticated(true);
+        fetchAnimes();
       } else {
-        setError(data.error);
+        setError(data.error || 'Noto\'g\'ri parol');
+        if (data.isLocked && data.remainingMs) {
+          setLockoutRemainingMs(data.remainingMs);
+        }
+        if (typeof data.remainingAttempts === 'number') {
+          setRemainingAttempts(data.remainingAttempts);
+        }
       }
     } catch (e) {
       setError('Tizim xatosi');
@@ -152,35 +200,93 @@ export default function AdminPage() {
   }
 
   if (!isAuthenticated) {
+    const isLocked = lockoutRemainingMs > 0;
+
     return (
       <div className="min-h-screen bg-[#141414] flex items-center justify-center p-4">
-        <div className="bg-[#1f1f1f] border border-white/5 p-8 rounded-2xl w-full max-w-md shadow-2xl">
-          <div className="flex items-center justify-center mb-6 text-primary">
-            <Settings className="w-12 h-12" />
+        <div className="bg-[#1f1f1f] border border-white/5 p-8 rounded-2xl w-full max-w-md shadow-2xl relative overflow-hidden">
+          {/* Top Security Glow */}
+          <div className={`absolute top-0 left-0 right-0 h-1.5 ${isLocked ? 'bg-red-500 animate-pulse' : 'bg-gradient-to-r from-purple-500 to-indigo-500'}`} />
+
+          <div className="flex items-center justify-center mb-6">
+            {isLocked ? (
+              <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 animate-bounce">
+                <ShieldAlert className="w-8 h-8" />
+              </div>
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Lock className="w-8 h-8" />
+              </div>
+            )}
           </div>
-          <h1 className="text-2xl font-bold text-white text-center mb-6">Admin Panel</h1>
-          
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Parol</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full bg-[#141414] border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors"
-                placeholder="Parolni kiriting"
-                required
-              />
+
+          <h1 className="text-2xl font-bold text-white text-center mb-2">Boshqaruv Paneli</h1>
+          <p className="text-gray-400 text-xs text-center mb-6">
+            Xavfsiz tizim • 5 marta noto'g'ri urinishdan so'ng 30 daqiqaga bloklanadi
+          </p>
+
+          {isLocked ? (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-5 text-center space-y-3">
+              <div className="flex items-center justify-center gap-2 text-red-400 font-semibold">
+                <Clock className="w-5 h-5 animate-spin" />
+                <span>Kirish vaqtincha bloklandi</span>
+              </div>
+              <p className="text-gray-300 text-sm">
+                5 marta xato parol kiritilgani sababli kirish cheklandi.
+              </p>
+              <div className="py-3 px-4 bg-[#141414] rounded-lg border border-red-500/30 text-2xl font-mono font-bold text-red-400 tracking-wider">
+                ⏳ {formatLockoutTimer(lockoutRemainingMs)}
+              </div>
+              <p className="text-xs text-gray-500">
+                Qayta urinish uchun taymer tugashini kuting.
+              </p>
             </div>
-            {error && <p className="text-red-500 text-sm font-medium text-center">{error}</p>}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              Kirish
-            </button>
-          </form>
+          ) : (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium text-gray-400">Admin Paroli</label>
+                  {remainingAttempts !== null && remainingAttempts < 5 && (
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded ${remainingAttempts <= 2 ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                      {remainingAttempts} ta urinish qoldi
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full bg-[#141414] border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors text-sm"
+                  placeholder="Parolni kiriting..."
+                  required
+                />
+              </div>
+
+              {error && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs font-medium text-center">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-purple-900/30 disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Tekshirilmoqda...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Tizimga kirish</span>
+                  </>
+                )}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );

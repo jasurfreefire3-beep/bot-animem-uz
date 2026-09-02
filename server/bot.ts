@@ -1525,53 +1525,8 @@ function buildEpisodeKeyboard(anime: any, currentEp: number | string | null, pag
 
 // Episode player grid matching Screenshot 2
 async function sendWatchEpisodesGrid(chatId: number | string, anime: any, page = 1, messageId?: number) {
-  const totalEpisodes = anime.total_episodes || anime.current_episode || 12;
-  const itemsPerPage = 12; // 3 columns x 4 rows
-  const totalPages = Math.ceil(totalEpisodes / itemsPerPage) || 1;
-  const currentPage = Math.max(1, Math.min(page, totalPages));
-
-  const startEp = (currentPage - 1) * itemsPerPage + 1;
-
-  const { count: watchersCount, text: watchersText } = getRealWatchers(anime.id);
-  const passExp = await getUserPassDb(chatId);
-  const hasPass = passExp > Date.now();
-
-  const captionHtml = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
-<blockquote>${E.VIDEO_MONO} Epizod ${startEp} / ${totalEpisodes} ❞</blockquote>
-<blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
-${escapeHtml(watchersText)} ❞</blockquote>
-${hasPass
-  ? `<i>${E.NEW} Animem Pass VIP obunasi faol! Barcha epizodlarni to'g'ridan-to'g'ri yuklab olishingiz mumkin.</i>`
-  : `<i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling </i>👇`}`;
-
-  const replyMarkup = buildEpisodeKeyboard(anime, null, currentPage, hasPass);
-
-  if (messageId) {
-    try {
-      const editMediaRes = await telegramApiCall('editMessageMedia', {
-        chat_id: chatId,
-        message_id: messageId,
-        media: {
-          type: 'photo',
-          media: MASCOT_URL,
-          caption: captionHtml,
-          parse_mode: 'HTML',
-        },
-        reply_markup: replyMarkup,
-      });
-      if (editMediaRes.ok) return;
-    } catch (e) {
-      console.warn('editMessageMedia in sendWatchEpisodesGrid failed:', e);
-    }
-  }
-
-  await telegramApiCall('sendPhoto', {
-    chat_id: chatId,
-    photo: MASCOT_URL,
-    caption: captionHtml,
-    parse_mode: 'HTML',
-    reply_markup: replyMarkup,
-  });
+  // If we have at least 1 episode or standard episode, directly open episode 1 player so NO orphan banner image is left!
+  return handlePlayEpisode(chatId, anime, 1, page, messageId);
 }
 
 // Handle Play Episode with Animem Pass VIP Download Logic
@@ -1592,39 +1547,44 @@ async function handlePlayEpisode(chatId: number | string, anime: any, ep: string
     // ==========================================
     // PASS BOR ODAM (VIP USER)
     // 1. Agar avvalgi xabar (messageId) mavjud bo'lsa:
-    //    - Tepada qolgan epizodning barcha tugmalari yo'qoladi (inline_keyboard bo'shatiladi).
-    //    - Tepada qolgan epizod caption'i faqat Anime nomi va qismiga qisqartirib qoldiriladi.
-    // 2. Yangi tanlangan epizod pastga yangi xabar bo'lib tushadi.
-    // 3. Yangi epizod ostida barcha tugmalar (boshqa qismlar, menyu va h.k.) bo'ladi.
-    // 4. Yuklab olish / saqlash / forward qilishga to'liq ruxsat (protect_content: false).
+    //    - Agar avvalgi xabar BANNER/RASM bo'lsa (ya'ni video bo'lmagan menu/poster), uni chatdan O'CHIRIB tashlaymiz!
+    //    - Faqatgina avvalgi xabar haqiqiy VIDEO epizodi bo'lsa, uni chatda qoldirib, tugmalarini tozalaymiz.
+    // 2. Yangi tanlangan epizod pastga yangi video xabar bo'lib tushadi.
+    // 3. Yuklab olish / saqlashga to'liq ruxsat (protect_content: false).
     // ==========================================
     if (messageId) {
-      try {
-        let prevEpNum: string | null = null;
-        if (prevCaption) {
-          const match = prevCaption.match(/Epizod\s*(\d+)/i);
-          if (match) prevEpNum = match[1];
-        }
-        const cleanOldCaption = prevEpNum
-          ? `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>\n<blockquote>${E.VIDEO_MONO} Epizod ${prevEpNum} / ${totalEpisodes} ❞</blockquote>`
-          : `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>`;
-
-        await telegramApiCall('editMessageCaption', {
-          chat_id: chatId,
-          message_id: messageId,
-          caption: cleanOldCaption,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [] },
-        });
-      } catch (err) {
-        // Fallback: Faqat tugmalarni olib tashlash
+      const isPrevAnEpisodeVideo = prevCaption && /Epizod\s*\d+/i.test(prevCaption) && !prevCaption.includes('Sevimlilar') && !prevCaption.includes('Obuna');
+      
+      if (isPrevAnEpisodeVideo) {
+        // Avvalgi video xabarning inline tugmalarini bo'shatish
         try {
-          await telegramApiCall('editMessageReplyMarkup', {
+          const match = prevCaption.match(/Epizod\s*(\d+)/i);
+          const prevEpNum = match ? match[1] : epNum;
+          const cleanOldCaption = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>\n<blockquote>${E.VIDEO_MONO} Epizod ${prevEpNum} / ${totalEpisodes} ❞</blockquote>`;
+
+          await telegramApiCall('editMessageCaption', {
             chat_id: chatId,
             message_id: messageId,
+            caption: cleanOldCaption,
+            parse_mode: 'HTML',
             reply_markup: { inline_keyboard: [] },
           });
-        } catch {}
+        } catch {
+          try {
+            await telegramApiCall('editMessageReplyMarkup', {
+              chat_id: chatId,
+              message_id: messageId,
+              reply_markup: { inline_keyboard: [] },
+            });
+          } catch {}
+        }
+      } else {
+        // Agar avvalgi xabar banner rasmi, menyu yoki poster bo'lsa, O'CHIRIB TASHLANADI!
+        try {
+          await telegramApiCall('deleteMessage', { chat_id: chatId, message_id: messageId });
+        } catch (e) {
+          console.warn('deleteMessage previous non-video error:', e);
+        }
       }
     }
 
@@ -1657,18 +1617,18 @@ ${escapeHtml(watchersText)} ❞</blockquote>
   } else {
     // ==========================================
     // PASS YO'Q ODAM (FREE USER)
-    // 1. Yangi epizod tanlanganda avvalgi xabar O'CHIB KETADI (deleteMessage).
+    // 1. Yangi epizod tanlanganda avvalgi BARCHA xabarlar O'CHIRIB TASHLANADI (deleteMessage).
     // 2. Yuklab olish, saqlash, forward qilish qat'iyan taqiqlanadi (protect_content: true).
-    // 3. Faqat bitta joriy epizod ko'rinadi.
+    // 3. Hech qanday rasm yoki eski epizod chatda qolmaydi.
     // ==========================================
     const freeCaption = `${E.BOOKMARK} <b>${escapeHtml(anime.title)}</b>
 <blockquote>${E.VIDEO_MONO} Epizod ${epNum} / ${totalEpisodes} ❞</blockquote>
-<blockquote>🔒 Holati: <b>Cheklangan (Yuklab olish taqiqlangan)</b> ❞</blockquote>
+<blockquote>🔒 Holati: <b>Cheklangan (Yuklab olish va uzatish taqiqlangan 🚫)</b> ❞</blockquote>
 <blockquote>${E.USERS_MONO} Hozir tomosha qilmoqda (${watchersCount} kishi):
 ${escapeHtml(watchersText)} ❞</blockquote>
 <i>Bundan avvalgi epizod o'chib ketdimi? ${E.CARD_MONO} Animem Pass obunasi bilan barcha epizodlarni bir vaqtda yuklab oling va qismlar o'chmaydi </i>👇`;
 
-    // Free userda avvalgi xabar o'chiriladi
+    // Free userda avvalgi xabar darhol o'chiriladi
     if (messageId) {
       try {
         await telegramApiCall('deleteMessage', { chat_id: chatId, message_id: messageId });

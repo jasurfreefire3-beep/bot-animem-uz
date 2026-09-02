@@ -52,11 +52,17 @@ async function startServer() {
     console.warn('Background Telegram Bot initialization:', err?.message || err);
   });
 
-  // --- Admin Auth State ---
+  // --- Admin Auth State with 5-Attempts & 30-Minute Lockout ---
   const adminAttempts = new Map<string, { count: number, lockoutUntil: number }>();
   const ADMIN_PASSWORD = '1213234';
   const MAX_ATTEMPTS = 5;
   const LOCKOUT_DURATION = 30 * 60 * 1000; // 30 minutes
+
+  const getClientIp = (req: any): string => {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
+    return req.ip || req.socket.remoteAddress || '127.0.0.1';
+  };
 
   // Middleware for Admin Auth
   const adminAuth = (req: any, res: any, next: any) => {
@@ -68,25 +74,71 @@ async function startServer() {
     }
   };
 
-  app.post('/api/admin/login', (req, res) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  app.get('/api/admin/status', (req, res) => {
+    const ip = getClientIp(req);
     const state = adminAttempts.get(ip) || { count: 0, lockoutUntil: 0 };
+    const now = Date.now();
+    if (now < state.lockoutUntil) {
+      const remainingMs = state.lockoutUntil - now;
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      return res.json({ 
+        isLocked: true, 
+        remainingMs,
+        remainingMinutes,
+        message: `Tizim bloklangan. ${remainingMinutes} daqiqadan so'ng qayta urinib ko'ring.` 
+      });
+    }
+    return res.json({ 
+      isLocked: false, 
+      attemptsUsed: state.count, 
+      remainingAttempts: Math.max(0, MAX_ATTEMPTS - state.count) 
+    });
+  });
 
-    if (Date.now() < state.lockoutUntil) {
-      const remainingMinutes = Math.ceil((state.lockoutUntil - Date.now()) / 60000);
-      return res.status(429).json({ error: `Juda ko'p urinish. ${remainingMinutes} daqiqadan so'ng qayta urinib ko'ring.` });
+  app.post('/api/admin/login', (req, res) => {
+    const ip = getClientIp(req);
+    const state = adminAttempts.get(ip) || { count: 0, lockoutUntil: 0 };
+    const now = Date.now();
+
+    // Check if currently locked out
+    if (now < state.lockoutUntil) {
+      const remainingMs = state.lockoutUntil - now;
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      return res.status(429).json({ 
+        error: `Xavfsizlik tizimi faollashtirilgan! 5 ta noto'g'ri urinish tufayli kirish bloklangan. Iltimos, ${remainingMinutes} daqiqa kuting.`,
+        isLocked: true,
+        remainingMs
+      });
+    }
+
+    // Reset expired lockout
+    if (state.lockoutUntil > 0 && now >= state.lockoutUntil) {
+      state.count = 0;
+      state.lockoutUntil = 0;
     }
 
     if (req.body.password === ADMIN_PASSWORD) {
       adminAttempts.delete(ip);
-      return res.json({ token: `admin_${ADMIN_PASSWORD}` });
+      return res.json({ success: true, token: `admin_${ADMIN_PASSWORD}` });
     } else {
       state.count += 1;
+      const remaining = MAX_ATTEMPTS - state.count;
+
       if (state.count >= MAX_ATTEMPTS) {
-        state.lockoutUntil = Date.now() + LOCKOUT_DURATION;
+        state.lockoutUntil = now + LOCKOUT_DURATION;
+        adminAttempts.set(ip, state);
+        return res.status(429).json({ 
+          error: `5 marta noto'g'ri parol kiritildi! Xavfsizlik yuzasidan admin panelga kirish 30 daqiqaga bloklandi.`,
+          isLocked: true,
+          remainingMs: LOCKOUT_DURATION
+        });
+      } else {
+        adminAttempts.set(ip, state);
+        return res.status(401).json({ 
+          error: `Noto'g'ri parol! Qolgan urinishlar soni: ${remaining} ta`,
+          remainingAttempts: remaining
+        });
       }
-      adminAttempts.set(ip, state);
-      return res.status(401).json({ error: 'Noto\'g\'ri parol' });
     }
   });
 
