@@ -89,81 +89,53 @@ export const ImageSearchModal: React.FC<ImageSearchModalProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const processImage = async (imageSrc: string, fileBlob?: Blob) => {
-    setImagePreview(imageSrc);
+  const processImage = async (imageSrc: string, fileBlob?: Blob, imageUrl?: string) => {
+    setImagePreview(imageSrc || imageUrl || null);
     setIsAnalyzing(true);
     setErrorMsg(null);
     setMatchResult(null);
 
     try {
-      // Attempt real Trace.moe reverse anime search API
-      let traceData = null;
-      if (fileBlob) {
-        const formData = new FormData();
-        formData.append('image', fileBlob);
-        const res = await fetch('https://api.trace.moe/search?anilistInfo', {
-          method: 'POST',
-          body: formData,
-        }).catch(() => null);
-
-        if (res && res.ok) {
-          traceData = await res.json();
-        }
+      const payload: { image?: string; url?: string } = {};
+      if (imageSrc && imageSrc.startsWith('data:')) {
+        payload.image = imageSrc;
+      } else if (imageUrl) {
+        payload.url = imageUrl;
+      } else if (imageSrc) {
+        payload.image = imageSrc;
       }
 
-      if (traceData && traceData.result && traceData.result.length > 0) {
-        const best = traceData.result[0];
-        const title =
-          best.anilist?.title?.romaji ||
-          best.anilist?.title?.english ||
-          best.filename ||
-          'Topilgan Anime';
+      const res = await fetch('/api/search/trace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-        // Find match in local anime database
-        const localMatch = allAnimes.find(
-          (a) =>
-            a.title.toLowerCase().includes(title.toLowerCase()) ||
-            title.toLowerCase().includes(a.title.toLowerCase()) ||
-            (a.original_title && a.original_title.toLowerCase().includes(title.toLowerCase()))
-        );
+      const data = await res.json();
 
+      if (!res.ok || !data.success) {
+        setErrorMsg(data.error || data.message || 'Trace.moe orqali animeni aniqlab bo‘lmadi.');
+        return;
+      }
+
+      if (data.match) {
+        const best = data.match;
         setMatchResult({
-          title: localMatch?.title || title,
-          nativeTitle: best.anilist?.title?.native,
+          title: best.matchedAnime?.title || best.title,
+          nativeTitle: best.nativeTitle,
           episode: typeof best.episode === 'number' ? best.episode : 1,
-          fromTime: formatSeconds(best.from || 0),
-          similarity: Math.round(best.similarity * 1000) / 10,
-          previewVideoUrl: best.video,
-          previewImageUrl: best.image,
-          matchedAnime: localMatch,
+          fromTime: best.fromTime || '00:00',
+          similarity: best.similarity || 90,
+          previewVideoUrl: best.previewVideoUrl,
+          previewImageUrl: best.previewImageUrl || imageSrc,
+          matchedAnime: best.matchedAnime,
         });
       } else {
-        // High quality local matching simulation
-        await new Promise((resolve) => setTimeout(resolve, 900));
-
-        // Find an anime or default
-        const randomAnime = allAnimes[Math.floor(Math.random() * (allAnimes.length || 1))] || allAnimes[0];
-        setMatchResult({
-          title: randomAnime ? randomAnime.title : 'Aniqlangan Anime',
-          episode: Math.floor(Math.random() * (randomAnime?.total_episodes || 12)) + 1,
-          fromTime: '15:42',
-          similarity: 98.4,
-          matchedAnime: randomAnime,
-          previewImageUrl: imageSrc,
-        });
+        setErrorMsg('Rasmdan anime aniqlanmadi. Iltimos, boshqa yoki aniqroq kadr yuklab ko‘ring.');
       }
     } catch (e: any) {
       console.error(e);
-      // Fallback
-      const fallbackAnime = allAnimes[0];
-      setMatchResult({
-        title: fallbackAnime?.title || 'Anime Aniqlangan',
-        episode: 1,
-        fromTime: '12:00',
-        similarity: 95.0,
-        matchedAnime: fallbackAnime,
-        previewImageUrl: imageSrc,
-      });
+      setErrorMsg('Qidiruv jarayonida xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -181,23 +153,7 @@ export const ImageSearchModal: React.FC<ImageSearchModalProps> = ({
   };
 
   const handlePresetSelect = (preset: typeof samplePresets[0]) => {
-    const matched = allAnimes.find((a) =>
-      a.title.toLowerCase().includes(preset.animeTitle.toLowerCase())
-    );
-
-    setImagePreview(preset.url);
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      setIsAnalyzing(false);
-      setMatchResult({
-        title: matched?.title || preset.animeTitle,
-        episode: preset.ep,
-        fromTime: preset.time,
-        similarity: preset.similarity,
-        matchedAnime: matched,
-        previewImageUrl: preset.url,
-      });
-    }, 700);
+    processImage(preset.url, undefined, preset.url);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -318,30 +274,57 @@ export const ImageSearchModal: React.FC<ImageSearchModalProps> = ({
               <Sparkles className="w-6 h-6 text-amber-400 animate-spin" />
             </div>
             <h4 className="text-sm sm:text-base font-bold text-white mb-1">
-              Rasm sun‘iy intellekt orqali tahlil qilinmoqda...
+              Rasm Trace.moe sun‘iy intellekt tizimi orqali tahlil qilinmoqda...
             </h4>
             <p className="text-xs text-purple-300/70">
-              Anime kadrlar bazasidan qidirilmoqda
+              Millionlab anime epizodlari va kadrlar bazasidan qidirilmoqda
+            </p>
+          </div>
+        )}
+
+        {/* Error state */}
+        {errorMsg && !isAnalyzing && (
+          <div className="p-5 sm:p-6 rounded-3xl bg-red-950/40 border border-red-800/50 text-center shadow-xl mb-6 animate-in fade-in duration-200">
+            <p className="text-sm font-bold text-red-300 mb-1">
+              {errorMsg}
+            </p>
+            <p className="text-xs text-purple-300/60">
+              Maslahat: Animening asosiy qahramoni aniq ko‘ringan va chetlarida qora chiziqlari kamroq kadrni tanlang.
             </p>
           </div>
         )}
 
         {/* Search Results Card */}
         {matchResult && !isAnalyzing && (
-          <div className="p-5 sm:p-7 rounded-3xl bg-gradient-to-r from-[#170a2f] to-[#120725] border-2 border-emerald-500/50 shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="p-5 sm:p-7 rounded-3xl bg-gradient-to-r from-[#170a2f] to-[#120725] border-2 border-emerald-500/50 shadow-2xl animate-in zoom-in-95 duration-200 mb-6">
             <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-4">
               <CheckCircle2 className="w-4 h-4" />
-              <span>Anime muvaffaqiyatli aniqlandi ({matchResult.similarity}% moslik)</span>
+              <span>Trace.moe orqali anime aniqlandi ({matchResult.similarity}% moslik)</span>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-5 items-start">
-              {/* Preview image */}
-              <div className="w-full sm:w-48 aspect-video rounded-2xl overflow-hidden border border-purple-800/40 shadow-lg shrink-0">
-                <img
-                  src={matchResult.previewImageUrl || imagePreview || ''}
-                  alt="Matched frame"
-                  className="w-full h-full object-cover"
-                />
+              {/* Preview image or video */}
+              <div className="w-full sm:w-56 aspect-video rounded-2xl overflow-hidden border border-purple-800/40 shadow-lg shrink-0 bg-black relative">
+                {matchResult.previewVideoUrl ? (
+                  <video
+                    src={matchResult.previewVideoUrl}
+                    poster={matchResult.previewImageUrl || imagePreview || ''}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <img
+                    src={matchResult.previewImageUrl || imagePreview || ''}
+                    alt="Matched frame"
+                    className="w-full h-full object-cover"
+                  />
+                )}
+                <div className="absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-sm text-[10px] font-bold text-white">
+                  Trace.moe kadr
+                </div>
               </div>
 
               {/* Matched metadata */}

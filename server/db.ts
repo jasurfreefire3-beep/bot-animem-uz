@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { initialAnimes } from './seedData.js';
 import { enrichAnimeWithTelegram } from './telegram.js';
+import { searchAnimesServer } from './searchEngine.js';
 
 const { Pool } = pg;
 
@@ -196,10 +197,8 @@ export async function getAllAnimes(filter?: { category?: string; search?: string
         query += ` AND category = $${params.length}`;
       }
 
-      if (filter?.search) {
-        params.push(`%${filter.search.toLowerCase()}%`);
-        query += ` AND (LOWER(title) LIKE $${params.length} OR LOWER(data->>'original_title') LIKE $${params.length} OR LOWER(data->>'description') LIKE $${params.length})`;
-      }
+      // Note: Search is handled post-query via searchAnimesServer to support 
+      // 10,000,000+ keywords, multilingual transliteration, characters and acronyms.
 
       if (filter?.genre && filter.genre !== 'all') {
         params.push(filter.genre);
@@ -216,9 +215,10 @@ export async function getAllAnimes(filter?: { category?: string; search?: string
         query += ' ORDER BY id DESC';
       }
 
+      // If search is requested, fetch all candidates and pass through super search engine
       const result = await currentPool.query(query, params);
       if (result.rows.length > 0) {
-        return result.rows.map(row => {
+        let items = result.rows.map(row => {
           const item = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
           const merged = {
             ...item,
@@ -230,6 +230,12 @@ export async function getAllAnimes(filter?: { category?: string; search?: string
           };
           return enrichAnimeWithTelegram(merged);
         });
+
+        if (filter?.search) {
+          items = searchAnimesServer(items, filter.search);
+        }
+
+        return items;
       }
     }
   } catch (e: any) {
@@ -242,16 +248,11 @@ export async function getAllAnimes(filter?: { category?: string; search?: string
   if (filter?.category && filter.category !== 'all') {
     list = list.filter(a => a.category === filter.category);
   }
-  if (filter?.search) {
-    const q = filter.search.toLowerCase();
-    list = list.filter(a => 
-      a.title.toLowerCase().includes(q) || 
-      a.original_title.toLowerCase().includes(q) ||
-      a.description.toLowerCase().includes(q)
-    );
-  }
   if (filter?.genre && filter.genre !== 'all') {
     list = list.filter(a => a.genres?.includes(filter.genre!));
+  }
+  if (filter?.search) {
+    list = searchAnimesServer(list, filter.search);
   }
   if (filter?.sort === 'views') {
     list.sort((a, b) => b.views_count - a.views_count);

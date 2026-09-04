@@ -18,7 +18,7 @@ import {
   getImageFromDatabase
 } from './server/db.js';
 import { generateTelegramLinks, generateEpisodeTelegramLink, DEFAULT_BOT_USERNAME } from './server/telegram.js';
-import { initTelegramBot } from './server/bot.js';
+import { initTelegramBot, findMatchingAnimeInDb } from './server/bot.js';
 import { 
   generateSitemapXml, 
   generateRobotsTxt, 
@@ -259,6 +259,110 @@ async function startServer() {
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ----------------- Trace.moe Reverse Anime Image Search API -----------------
+  app.post('/api/search/trace', async (req, res) => {
+    try {
+      const { image, url } = req.body || {};
+      let buffer: Buffer | null = null;
+      let contentType = 'image/jpeg';
+
+      if (image && typeof image === 'string') {
+        if (image.startsWith('data:')) {
+          const matches = image.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+            contentType = matches[1];
+            buffer = Buffer.from(matches[2], 'base64');
+          } else {
+            const commaIdx = image.indexOf(',');
+            buffer = Buffer.from(commaIdx !== -1 ? image.slice(commaIdx + 1) : image, 'base64');
+          }
+        } else {
+          buffer = Buffer.from(image, 'base64');
+        }
+      } else if (url && typeof url === 'string') {
+        const fetchRes = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!fetchRes.ok) {
+          return res.status(400).json({ error: `Rasm URL manzilidan yuklab olinmadi (HTTP ${fetchRes.status})` });
+        }
+        const cType = fetchRes.headers.get('content-type');
+        if (cType) contentType = cType;
+        buffer = Buffer.from(await fetchRes.arrayBuffer());
+      }
+
+      if (!buffer || buffer.length === 0) {
+        return res.status(400).json({ error: 'Qidirish uchun rasm (fayl yoki URL) taqdim etilmadi' });
+      }
+
+      // Call Trace.moe API v2 with cutBorders and anilistInfo
+      const traceRes = await fetch('https://api.trace.moe/search?anilistInfo&cutBorders', {
+        method: 'POST',
+        body: buffer,
+        headers: {
+          'Content-Type': contentType.startsWith('image/') ? contentType : 'image/jpeg',
+        },
+        signal: AbortSignal.timeout(25000),
+      });
+
+      if (!traceRes.ok) {
+        const errText = await traceRes.text();
+        console.warn('Trace.moe API error:', traceRes.status, errText);
+        return res.status(traceRes.status).json({
+          error: 'Trace.moe serverida xatolik yuz berdi. Iltimos, boshqa rasm bilan qayta urinib ko\'ring.',
+          details: errText,
+        });
+      }
+
+      const data = await traceRes.json();
+      if (!data || !data.result || data.result.length === 0) {
+        return res.json({
+          success: false,
+          message: 'Rasmdan anime aniqlanmadi. Iltimos, yorqinroq yoki boshqa anime kadrini sinab ko\'ring.',
+          results: [],
+        });
+      }
+
+      const allAnimes = await getAllAnimes();
+      const formatSec = (sec: number) => {
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+      };
+
+      const mappedResults = data.result.slice(0, 5).map((item: any) => {
+        const local = findMatchingAnimeInDb(allAnimes, item);
+        const simPercent = Math.round((item.similarity || 0) * 1000) / 10;
+        return {
+          title: item.anilist?.title?.romaji || item.filename || 'Noma\'lum anime',
+          englishTitle: item.anilist?.title?.english,
+          nativeTitle: item.anilist?.title?.native,
+          episode: typeof item.episode === 'number' ? item.episode : (item.episode || 1),
+          fromTime: formatSec(item.from || 0),
+          toTime: formatSec(item.to || 0),
+          similarity: simPercent,
+          previewVideoUrl: item.video,
+          previewImageUrl: item.image,
+          anilistId: item.anilist?.id,
+          matchedAnime: local ? {
+            ...local,
+            telegram: generateTelegramLinks(local),
+          } : undefined,
+        };
+      });
+
+      return res.json({
+        success: true,
+        match: mappedResults[0],
+        allResults: mappedResults,
+      });
+    } catch (err: any) {
+      console.error('API /api/search/trace error:', err);
+      res.status(500).json({ error: 'Rasm qidiruvida xatolik yuz berdi: ' + (err?.message || err) });
     }
   });
 

@@ -19,6 +19,7 @@ import {
   getUserRating
 } from './db.js';
 import { setBotUsername, enrichAnimeWithTelegram, getBotUsername } from './telegram.js';
+import { searchAnimesServer } from './searchEngine.js';
 import { E } from './emojis.js';
 
 
@@ -970,7 +971,7 @@ ${E.TG_MONO} <b>Rasmiy kanalimiz:</b> <a href="https://t.me/animemuz_bot_org">An
           inline_keyboard: [[{ text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' }]],
         });
       } else if (data === 'btn_locked_image') {
-        await editOrSendMessage(chatId, messageId, `${E.IMAGE_MONO} <b>Rasm orqali qidiruv</b>\n\nIstalgan anime kadrini (skrinshotni) menga yuboring va men qaysi animedan olinganini topib beraman!`, {
+        await editOrSendMessage(chatId, messageId, `${E.IMAGE_MONO} <b>Trace.moe Rasm orqali qidiruv</b>\n\nIstalgan anime kadrini (skrinshotni) menga yuboring!\n\nTrace.moe sun'iy intellekt tizimi orqali animening nomi, qaysi epizod va aniq daqiqasigacha aniqlab beraman.`, {
           inline_keyboard: [[{ text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' }]],
         });
       }
@@ -1703,13 +1704,7 @@ async function handleInlineQuery(inlineQuery: any) {
   console.log(`[Inline] User ${userId} queried "${query}". Found ${animes.length} animes.`);
 
   const filtered = query
-    ? animes.filter(
-        (a) =>
-          a.title?.toLowerCase().includes(query) ||
-          a.original_title?.toLowerCase().includes(query) ||
-          a.genres?.some((g: string) => g.toLowerCase().includes(query)) ||
-          a.description?.toLowerCase().includes(query)
-      )
+    ? searchAnimesServer(animes, query)
     : animes;
 
   console.log(`[Inline] Filtered to ${filtered.length} results.`);
@@ -1893,48 +1888,164 @@ export async function getAnimeChronologyText(animeNameQuery?: string): Promise<s
 }
 
 // ----------------- Reverse Anime Image Search (Trace.moe) -----------------
-export async function searchAnimeByImageUrl(imageUrl: string): Promise<{ success: boolean; text: string; matchedAnime?: any }> {
-  try {
-    const traceRes = await fetch(`https://api.trace.moe/search?url=${encodeURIComponent(imageUrl)}&cutBorders=true`);
-    const data = await traceRes.json();
+export function findMatchingAnimeInDb(animes: any[], best: any): any | null {
+  if (!best || !animes || animes.length === 0) return null;
+  const titlesToTest: string[] = [];
+  if (best.anilist?.title?.romaji) titlesToTest.push(best.anilist.title.romaji.toLowerCase().trim());
+  if (best.anilist?.title?.english) titlesToTest.push(best.anilist.title.english.toLowerCase().trim());
+  if (best.anilist?.title?.native) titlesToTest.push(best.anilist.title.native.toLowerCase().trim());
+  if (Array.isArray(best.anilist?.synonyms)) {
+    best.anilist.synonyms.forEach((s: string) => {
+      if (s && typeof s === 'string') titlesToTest.push(s.toLowerCase().trim());
+    });
+  }
+  if (best.filename) {
+    const cleaned = best.filename
+      .replace(/\[.*?\]|\(.*?\)/g, '')
+      .replace(/-\s*\d+.*$/, '')
+      .trim()
+      .toLowerCase();
+    if (cleaned.length >= 3) titlesToTest.push(cleaned);
+  }
 
-    if (data && data.result && data.result.length > 0) {
-      const bestMatch = data.result[0];
-      const similarity = (bestMatch.similarity * 100).toFixed(1);
-      const filename = bestMatch.filename || '';
-      const episode = bestMatch.episode || 'Aniqlanmagan';
-      const fromTime = Math.floor(bestMatch.from || 0);
-      const minutes = Math.floor(fromTime / 60);
-      const seconds = fromTime % 60;
-      const timeString = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  for (const anime of animes) {
+    const dbTitle = (anime.title || '').toLowerCase().trim();
+    const dbOrig = (anime.original_title || '').toLowerCase().trim();
+    const dbEng = (anime.english_title || '').toLowerCase().trim();
 
-      // Try finding in our database
-      const animes = await getAllAnimes();
-      const matchedInDb = animes.find(a => 
-        (a.title && filename.toLowerCase().includes(a.title.toLowerCase())) || 
-        (a.original_title && filename.toLowerCase().includes(a.original_title.toLowerCase()))
-      );
+    for (const testTitle of titlesToTest) {
+      if (!testTitle) continue;
+      if (dbTitle === testTitle) return anime;
+      if (dbOrig && dbOrig === testTitle) return anime;
+      if (dbEng && dbEng === testTitle) return anime;
 
-      let text = `${E.IMAGE_MONO} <b>Rasmdan anime aniqlandi!</b>\n\n`;
-      text += `${E.VIDEO_MONO} <b>Anime:</b> <code>${filename}</code>\n`;
-      text += `${E.PLAYER} <b>Qism:</b> ${episode}-qism\n`;
-      text += `${E.LOADING} <b>Vaqt:</b> ${timeString}\n`;
-      text += `${E.FIRE} <b>Aniqlik darajasi:</b> ${similarity}%\n\n`;
-
-      if (matchedInDb) {
-        text += `${E.CHECK} <b>Bizning bazada mavjud:</b> "${matchedInDb.title}"\n`;
-        text += `👉 Tomosha qilish uchun anime nomini qidiring!`;
-      } else {
-        text += `${E.SEARCH_MONO} Ushbu animeni qidiruv orqali qidirib ko'rishingiz mumkin.`;
+      // Partial matching for names longer than 3 chars
+      if (dbTitle.length >= 4 && testTitle.length >= 4) {
+        if (testTitle.includes(dbTitle) || dbTitle.includes(testTitle)) return anime;
       }
-
-      return { success: true, text, matchedAnime: matchedInDb };
-    } else {
-      return { success: false, text: `😔 Afsuski, rasmdan anime aniqlanmadi. Iltimos, animening yorqinroq kadrini yuboring.` };
+      if (dbOrig.length >= 4 && testTitle.length >= 4) {
+        if (testTitle.includes(dbOrig) || dbOrig.includes(testTitle)) return anime;
+      }
     }
+  }
+  return null;
+}
+
+export async function searchAnimeByImageUrl(
+  imageUrl?: string,
+  imageBuffer?: Buffer
+): Promise<{
+  success: boolean;
+  text: string;
+  matchedAnime?: any;
+  best?: any;
+  similarity?: string;
+  previewImageUrl?: string;
+  previewVideoUrl?: string;
+}> {
+  try {
+    let buffer: Buffer | null = null;
+    if (imageBuffer && Buffer.isBuffer(imageBuffer) && imageBuffer.length > 0) {
+      buffer = imageBuffer;
+    } else if (imageUrl) {
+      const imgRes = await fetch(imageUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!imgRes.ok) {
+        return {
+          success: false,
+          text: `⚠️ Rasmni yuklab olishda xatolik bo'ldi (HTTP ${imgRes.status}). Iltimos, boshqa rasm yuborib ko'ring.`,
+        };
+      }
+      buffer = Buffer.from(await imgRes.arrayBuffer());
+    } else {
+      return { success: false, text: 'Rasm topilmadi.' };
+    }
+
+    if (!buffer || buffer.length === 0) {
+      return { success: false, text: 'Rasm hajmi bo\'sh.' };
+    }
+
+    // Call Trace.moe API v2 with cutBorders and anilistInfo
+    const traceRes = await fetch('https://api.trace.moe/search?anilistInfo&cutBorders', {
+      method: 'POST',
+      body: buffer,
+      headers: {
+        'Content-Type': 'image/jpeg',
+      },
+      signal: AbortSignal.timeout(25000),
+    });
+
+    if (!traceRes.ok) {
+      const errText = await traceRes.text();
+      console.warn('Trace.moe error:', traceRes.status, errText);
+      return {
+        success: false,
+        text: `⚠️ Trace.moe xizmatida xatolik yuz berdi (${traceRes.status}). Iltimos, bir ozdan so'ng qayta urinib ko'ring.`,
+      };
+    }
+
+    const data = await traceRes.json();
+    if (!data || !data.result || data.result.length === 0) {
+      return {
+        success: false,
+        text: `😔 <b>Afsuski, kiritilgan rasmdan anime aniqlanmadi.</b>\n\nIltimos, animening yorqinroq, subtitr yoki qora hoshiyasi kamroq kadrini yuborib ko'ring.`,
+      };
+    }
+
+    const bestMatch = data.result[0];
+    const similarityNum = Math.round((bestMatch.similarity || 0) * 1000) / 10;
+    const similarity = similarityNum.toFixed(1);
+    const filename = bestMatch.filename || '';
+    const episode = typeof bestMatch.episode === 'number' ? bestMatch.episode : (bestMatch.episode || 'Aniqlanmagan');
+
+    const fromTime = Math.floor(bestMatch.from || 0);
+    const minutes = Math.floor(fromTime / 60);
+    const seconds = fromTime % 60;
+    const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+    const titleRomaji = bestMatch.anilist?.title?.romaji || filename || 'Noma\'lum anime';
+    const titleEnglish = bestMatch.anilist?.title?.english || '';
+    const titleNative = bestMatch.anilist?.title?.native || '';
+
+    // Find in our database
+    const animes = await getAllAnimes();
+    const matchedInDb = findMatchingAnimeInDb(animes, bestMatch);
+
+    let text = `${E.IMAGE_MONO} <b>Trace.moe orqali anime aniqlandi!</b>\n\n`;
+    text += `${E.VIDEO_MONO} <b>Anime:</b> <b>${escapeHtml(titleRomaji)}</b>\n`;
+    if (titleEnglish && titleEnglish.toLowerCase() !== titleRomaji.toLowerCase()) {
+      text += `🇬🇧 <b>Inglizcha:</b> ${escapeHtml(titleEnglish)}\n`;
+    }
+    if (titleNative) {
+      text += `🇯🇵 <b>Asl nomi:</b> ${escapeHtml(titleNative)}\n`;
+    }
+    text += `${E.PLAYER} <b>Qism:</b> ${episode}-qism\n`;
+    text += `${E.LOADING} <b>Kadr vaqti:</b> <code>${timeString}</code>\n`;
+    text += `${E.FIRE} <b>Aniqlik:</b> <b>${similarity}%</b> ${similarityNum >= 85 ? '🔥 (Juda yuqori)' : ''}\n\n`;
+
+    if (matchedInDb) {
+      text += `${E.CHECK} <b>Bizning botimizda mavjud:</b>\n👉 "<b>${escapeHtml(matchedInDb.title)}</b>"\n<i>Pastdagi tugma orqali darhol tomosha qilishingiz mumkin!</i>`;
+    } else {
+      text += `${E.SEARCH_MONO} <i>Ushbu anime hali botimiz bazasiga to'liq kiritilmagan bo'lishi mumkin. Qidiruv tugmasi orqali nomini qidirib ko'rishingiz mumkin.</i>`;
+    }
+
+    return {
+      success: true,
+      text,
+      matchedAnime: matchedInDb,
+      best: bestMatch,
+      similarity,
+      previewImageUrl: bestMatch.image,
+      previewVideoUrl: bestMatch.video,
+    };
   } catch (err: any) {
     console.error('trace.moe error:', err?.message || err);
-    return { success: false, text: `${E.WARN_YELLOW} Rasmni tahlil qilishda xatolik yuz berdi. Iltimos, boshqa rasm yuborib ko'ring.` };
+    return {
+      success: false,
+      text: `${E.WARN_YELLOW} <b>Rasmni tahlil qilishda xatolik yuz berdi.</b>\nIltimos, boshqa anime kadrini yuborib ko'ring.`,
+    };
   }
 }
 
@@ -2394,35 +2505,96 @@ ${E.ARCHIVE_MONO} Janr: ${(savedAnime.genres || []).join(', ')}`;
     return;
   }
 
-  // 4. Handle Photo upload (Reverse Image Search)
-  if (message.photo && message.photo.length > 0) {
+  // 4. Handle Photo upload or Image document (Trace.moe Reverse Image Search)
+  const isImageDoc = message.document && message.document.mime_type?.startsWith('image/');
+  if ((message.photo && message.photo.length > 0) || isImageDoc) {
     const passExp = await getUserPassDb(chatId);
-    if (passExp > Date.now()) {
-      const bestPhoto = message.photo[message.photo.length - 1];
-      const fileRes = await telegramApiCall('getFile', { file_id: bestPhoto.file_id });
+    const hasPass = isAdmin(chatId) || passExp > Date.now();
+
+    if (hasPass) {
+      const fileId = message.photo && message.photo.length > 0
+        ? message.photo[message.photo.length - 1].file_id
+        : message.document.file_id;
+
+      const fileRes = await telegramApiCall('getFile', { file_id: fileId });
       
       if (fileRes.ok && fileRes.result?.file_path) {
         const imageUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${fileRes.result.file_path}`;
-        await telegramApiCall('sendMessage', {
+        
+        const waitMsg = await telegramApiCall('sendMessage', {
           chat_id: chatId,
-          text: `🔍 <i>Rasm tekshirilmoqda, biroz kuting...</i>`,
+          text: `🔍 <i>Trace.moe orqali anime kadrini tahlil qilmoqdaman, bir oz kuting...</i>`,
           parse_mode: 'HTML',
         });
         
-        const searchResult = await searchAnimeByImageUrl(imageUrl);
+        let imgBuffer: Buffer | undefined;
+        try {
+          const fetchImg = await fetch(imageUrl);
+          if (fetchImg.ok) {
+            imgBuffer = Buffer.from(await fetchImg.arrayBuffer());
+          }
+        } catch (e) {
+          console.warn('Failed to fetch image buffer from telegram:', e);
+        }
+
+        const searchResult = await searchAnimeByImageUrl(imageUrl, imgBuffer);
+
+        // Delete waiting message
+        if (waitMsg?.ok && waitMsg.result?.message_id) {
+          try {
+            await telegramApiCall('deleteMessage', { chat_id: chatId, message_id: waitMsg.result.message_id });
+          } catch {}
+        }
+
+        const keyboard: any[][] = [];
+        if (searchResult.matchedAnime) {
+          keyboard.push([
+            { text: `▶️ ${searchResult.matchedAnime.title} (Tomosha qilish)`, callback_data: `view_${searchResult.matchedAnime.id}` }
+          ]);
+        } else if (searchResult.best?.anilist?.title?.romaji) {
+          const queryText = (searchResult.best.anilist.title.romaji as string).slice(0, 30);
+          keyboard.push([
+            { text: `🔍 Bot qidiruvi: "${queryText}"`, switch_inline_query_current_chat: queryText }
+          ]);
+        }
+        keyboard.push([{ text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' }]);
+
+        if (searchResult.previewImageUrl) {
+          const photoRes = await telegramApiCall('sendPhoto', {
+            chat_id: chatId,
+            photo: searchResult.previewImageUrl,
+            caption: searchResult.text,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard },
+          });
+
+          if (!photoRes.ok) {
+            await telegramApiCall('sendMessage', {
+              chat_id: chatId,
+              text: searchResult.text,
+              parse_mode: 'HTML',
+              reply_markup: { inline_keyboard: keyboard },
+            });
+          }
+        } else {
+          await telegramApiCall('sendMessage', {
+            chat_id: chatId,
+            text: searchResult.text,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: keyboard },
+          });
+        }
+      } else {
         await telegramApiCall('sendMessage', {
           chat_id: chatId,
-          text: searchResult.text,
+          text: `⚠️ Rasmni Telegram serveridan yuklab bo'lmadi. Qaytadan yuborib ko'ring.`,
           parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[{ text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' }]],
-          }
         });
       }
     } else {
       await telegramApiCall('sendMessage', {
         chat_id: chatId,
-        text: `🔒 <b>Rasmli qidiruv faqat Animem Pass egalari uchun ochiq!</b>\n\nUshbu xizmatdan foydalanish uchun Animem Pass sotib oling.`,
+        text: `🔒 <b>Trace.moe orqali rasmli qidiruv faqat Animem Pass egalari uchun ochiq!</b>\n\nUshbu xizmatdan foydalanish uchun Animem Pass sotib oling.`,
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
