@@ -18,6 +18,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { Footer } from './components/Footer';
 import AdminPage from './pages/AdminPage';
 import { Anime, CategorySection, DBStatus } from './types';
+import { searchAnimeWithSuperEngine } from './utils/searchEngine';
 import {
   Flame,
   Film,
@@ -43,9 +44,16 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check URL pathname for /admin or /anime/:idOrSlug
+  // Check URL pathname for /admin or /anime/:idOrSlug, and search queries ?q= or ?search=
   useEffect(() => {
     const pathname = window.location.pathname;
+    const searchParams = new URLSearchParams(window.location.search);
+    const incomingQuery = searchParams.get('q') || searchParams.get('search');
+    if (incomingQuery && incomingQuery.trim()) {
+      setSearchQuery(incomingQuery.trim());
+      setIsSearchModalOpen(true);
+    }
+
     if (pathname === '/admin') {
       setIsAdminRoute(true);
       return;
@@ -66,6 +74,11 @@ export default function App() {
 
     const handlePopState = () => {
       const currentPath = window.location.pathname;
+      const currentParams = new URLSearchParams(window.location.search);
+      const queryParam = currentParams.get('q') || currentParams.get('search');
+      if (queryParam) {
+        setSearchQuery(queryParam.trim());
+      }
       if (currentPath === '/admin') {
         setIsAdminRoute(true);
         setSelectedAnime(null);
@@ -138,14 +151,7 @@ export default function App() {
   const filteredAnimes = useMemo(() => {
     let list = [...allAnimes];
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (a) =>
-          a.title.toLowerCase().includes(q) ||
-          a.original_title.toLowerCase().includes(q) ||
-          (a.russian_title && a.russian_title.toLowerCase().includes(q)) ||
-          a.genres.some((g) => g.toLowerCase().includes(q))
-      );
+      list = searchAnimeWithSuperEngine(allAnimes, searchQuery.trim());
     }
 
     if (activeFilter === 'film') {

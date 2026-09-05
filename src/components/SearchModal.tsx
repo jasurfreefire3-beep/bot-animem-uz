@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Camera, Sparkles, Lock, Zap, Compass, Star } from 'lucide-react';
+import { Search, X, Camera, Sparkles, Lock, Zap, Compass, Star, Globe, ExternalLink } from 'lucide-react';
 import { Anime } from '../types';
 import { usePass } from '../context/PassContext';
 import { searchAnimeWithSuperEngine, POPULAR_SEARCH_KEYWORDS } from '../utils/searchEngine';
@@ -335,6 +335,23 @@ export const SearchModal: React.FC<SearchModalProps> = ({
               <p className="text-[11px] text-purple-300/50 max-w-lg mx-auto leading-relaxed">
                 O‘zbekcha, Ruscha, Inglizcha yoki Yaponcha (Romaji) nomlar, personajlar ismlari, qisqartmalar (JJK, AOT, SAO) yoki kirill/lotin yozuvlarida istalgancha qidiring!
               </p>
+            </div>
+          )}
+          {query.trim() && (
+            <div className="mt-4 pt-3 pb-1 flex items-center justify-between gap-3 border-t border-purple-900/30 text-xs flex-wrap">
+              <span className="text-purple-300/60 flex items-center gap-1.5 text-[11px]">
+                <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <span>Google Search &amp; Schema.org SEO integratsiyasi faol</span>
+              </span>
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent(query.trim() + ' anime ozbek tilida animem')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-950/50 hover:bg-blue-900/60 border border-blue-500/40 text-blue-300 hover:text-white transition-all font-semibold text-xs shadow-sm hover:scale-102"
+              >
+                <span>Google'da qidirish</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
           )}
         </div>

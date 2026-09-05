@@ -23,6 +23,7 @@ import {
   generateSitemapXml, 
   generateRobotsTxt, 
   generateAnimeSeoTags, 
+  generateHomeSeoTags,
   injectSeoIntoHtml 
 } from './server/seo.js';
 
@@ -578,8 +579,8 @@ async function startServer() {
     res.send(robots);
   });
 
-  // Helper to render anime page with complete SEO meta tags
-  async function renderHtmlWithAnimeSeo(urlPath: string, rawIndexHtml: string): Promise<string> {
+  // Helper to render HTML with complete SEO meta tags (Anime or Home)
+  async function renderHtmlWithSeo(urlPath: string, rawIndexHtml: string): Promise<string> {
     const animeMatch = urlPath.match(/^\/anime\/([^\/\?#]+)/);
     if (animeMatch) {
       const idOrSlug = animeMatch[1];
@@ -591,6 +592,14 @@ async function startServer() {
         }
       } catch (e) {
         console.warn('Could not inject anime SEO:', e);
+      }
+    } else if (urlPath === '/' || urlPath.startsWith('/?') || urlPath.startsWith('/pass')) {
+      try {
+        const animes = await getAllAnimes();
+        const homeSeoTags = generateHomeSeoTags(animes);
+        return injectSeoIntoHtml(rawIndexHtml, homeSeoTags);
+      } catch (e) {
+        console.warn('Could not inject home SEO:', e);
       }
     }
     return rawIndexHtml;
@@ -610,13 +619,13 @@ async function startServer() {
         return next();
       }
 
-      if (url.startsWith('/anime/')) {
+      if (url === '/' || url.startsWith('/anime/') || url.startsWith('/?') || url.startsWith('/pass')) {
         try {
           const templatePath = path.resolve(process.cwd(), 'index.html');
           let template = fs.readFileSync(templatePath, 'utf-8');
           template = await vite.transformIndexHtml(url, template);
-          const finalHtml = await renderHtmlWithAnimeSeo(url, template);
-          res.setHeader('Content-Type', 'text/html');
+          const finalHtml = await renderHtmlWithSeo(url, template);
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
           return res.status(200).send(finalHtml);
         } catch (e) {
           return next();
@@ -635,14 +644,15 @@ async function startServer() {
       try {
         const rawHtml = fs.readFileSync(indexHtmlPath, 'utf-8');
         const url = req.originalUrl || req.url;
-        const finalHtml = await renderHtmlWithAnimeSeo(url, rawHtml);
-        res.setHeader('Content-Type', 'text/html');
+        const finalHtml = await renderHtmlWithSeo(url, rawHtml);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(finalHtml);
       } catch (err) {
         res.sendFile(indexHtmlPath);
       }
     });
   }
+
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Animem Uz Bot server running on http://0.0.0.0:${PORT}`);
