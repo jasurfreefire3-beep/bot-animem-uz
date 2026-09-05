@@ -117,23 +117,40 @@ export default function App() {
     }
   };
 
-  // Fetch initial data
+  // Fetch initial data with safety fallbacks
   const fetchData = async () => {
     setIsLoading(true);
     try {
       const [secRes, allRes, statusRes] = await Promise.all([
-        fetch('/api/sections'),
-        fetch('/api/animes'),
-        fetch('/api/db-status')
+        fetch('/api/sections').catch(() => null),
+        fetch('/api/animes').catch(() => null),
+        fetch('/api/db-status').catch(() => null)
       ]);
 
-      const secData = await secRes.json();
-      const allData = await allRes.json();
-      const statusData = await statusRes.json();
+      if (secRes && secRes.ok) {
+        try {
+          const secData = await secRes.json();
+          if (secData && Array.isArray(secData.sections) && secData.sections.length > 0) {
+            setSections(secData.sections);
+          }
+        } catch {}
+      }
 
-      if (secData.sections) setSections(secData.sections);
-      if (allData.animes) setAllAnimes(allData.animes);
-      setDbStatus(statusData);
+      if (allRes && allRes.ok) {
+        try {
+          const allData = await allRes.json();
+          if (allData && Array.isArray(allData.animes) && allData.animes.length > 0) {
+            setAllAnimes(allData.animes);
+          }
+        } catch {}
+      }
+
+      if (statusRes && statusRes.ok) {
+        try {
+          const statusData = await statusRes.json();
+          if (statusData) setDbStatus(statusData);
+        } catch {}
+      }
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -151,7 +168,8 @@ export default function App() {
   const filteredAnimes = useMemo(() => {
     let list = [...allAnimes];
     if (searchQuery.trim()) {
-      list = searchAnimeWithSuperEngine(allAnimes, searchQuery.trim());
+      const scored = searchAnimeWithSuperEngine(allAnimes, searchQuery.trim());
+      list = scored.map((s) => s.anime);
     }
 
     if (activeFilter === 'film') {
@@ -413,12 +431,11 @@ export default function App() {
         isOpen={isImageSearchOpen}
         onClose={() => setIsImageSearchOpen(false)}
         onSelectAnime={handleSelectAnime}
+        allAnimes={allAnimes}
       />
 
       {/* Pass Required Warning Modal (Pop up in center if locked feature clicked) */}
-      <PassRequiredModal
-        onOpenPassModal={() => setIsPassOpen(true)}
-      />
+      <PassRequiredModal />
 
       {/* Full-Screen QIDIRUV Search Modal matching screenshot */}
       <SearchModal

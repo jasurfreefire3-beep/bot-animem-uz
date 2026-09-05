@@ -1,4 +1,5 @@
 import fs from 'fs';
+import https from 'https';
 import { 
   getAllAnimes, 
   getAnimeByIdOrSlug, 
@@ -6,6 +7,8 @@ import {
   updateAnime, 
   getUserPassDb, 
   setUserPassDb,
+  getUserPassInfoDb,
+  revokeUserPassDb,
   getMandatoryChannels,
   addMandatoryChannel,
   removeMandatoryChannel,
@@ -62,6 +65,29 @@ interface AdminWizardState {
 
 const adminSessions = new Map<number, AdminWizardState>();
 const channelAddSessions = new Map<number, { step: 'username' | 'title', username?: string }>();
+const adminPassSessions = new Map<number, { step: 'target_id' | 'duration'; targetId?: number }>();
+const adminCheckPassSessions = new Set<number>();
+
+export function formatUzDateTime(timestamp: number): string {
+  if (!timestamp || timestamp <= 0) return 'Mavjud emas';
+  try {
+    const d = new Date(timestamp);
+    const months = [
+      'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
+      'Iyul', 'Avgust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'
+    ];
+    // Toshkent vaqti (UTC+5)
+    const uzTime = new Date(d.getTime() + (5 * 60 * 60 * 1000) + (d.getTimezoneOffset() * 60 * 1000));
+    const day = uzTime.getDate();
+    const month = months[uzTime.getMonth()];
+    const year = uzTime.getFullYear();
+    const hours = String(uzTime.getHours()).padStart(2, '0');
+    const minutes = String(uzTime.getMinutes()).padStart(2, '0');
+    return `${day}-${month} ${year}, ${hours}:${minutes}`;
+  } catch {
+    return new Date(timestamp).toLocaleString('uz-UZ');
+  }
+}
 
 // --- Subscription Check ---
 async function checkBotIsAdmin(channelUsername: string): Promise<{ isAdmin: boolean; error?: string }> {
@@ -80,38 +106,51 @@ async function checkBotIsAdmin(channelUsername: string): Promise<{ isAdmin: bool
   }
 }
 
+// In-memory cache for user subscription status (valid for 120 seconds) to avoid repeated API calls on rapid clicks
+const userSubVerifiedCache = new Map<number, number>();
+
 async function checkSubscription(userId: number): Promise<{ ok: boolean; unsubscribed: any[] }> {
   // 1. Check if user has Animem Pass (Bypass)
   const passExp = await getUserPassDb(userId);
   if (passExp > Date.now()) return { ok: true, unsubscribed: [] };
 
-  // 2. Get mandatory channels
+  // 2. Check in-memory sub cache
+  const cachedValidUntil = userSubVerifiedCache.get(userId) || 0;
+  if (cachedValidUntil > Date.now()) {
+    return { ok: true, unsubscribed: [] };
+  }
+
+  // 3. Get mandatory channels
   const channels = await getMandatoryChannels();
   if (channels.length === 0) return { ok: true, unsubscribed: [] };
 
-  const unsubscribed = [];
-  for (const ch of channels) {
-    try {
-      const res = await telegramApiCall('getChatMember', {
-        chat_id: ch.username,
-        user_id: userId
-      });
-      if (res.ok && res.result) {
-        const status = res.result.status;
-        if (status !== 'creator' && status !== 'administrator' && status !== 'member') {
-          unsubscribed.push(ch);
+  // 4. Parallel verification of all channels simultaneously
+  const checkResults = await Promise.all(
+    channels.map(async (ch) => {
+      try {
+        const res = await telegramApiCall('getChatMember', {
+          chat_id: ch.username,
+          user_id: userId,
+        });
+        if (res.ok && res.result) {
+          const status = res.result.status;
+          if (status === 'creator' || status === 'administrator' || status === 'member') {
+            return { ch, isSubscribed: true };
+          }
         }
-      } else {
-        // If bot is not admin or channel not found, we might skip or fail. 
-        // User asked to remind admin to add bot as admin.
-        unsubscribed.push(ch);
-      }
-    } catch (e) {
-      unsubscribed.push(ch);
-    }
+      } catch {}
+      return { ch, isSubscribed: false };
+    })
+  );
+
+  const unsubscribed = checkResults.filter((r) => !r.isSubscribed).map((r) => r.ch);
+
+  if (unsubscribed.length === 0) {
+    userSubVerifiedCache.set(userId, Date.now() + 120000); // Cache for 2 minutes
+    return { ok: true, unsubscribed: [] };
   }
 
-  return { ok: unsubscribed.length === 0, unsubscribed };
+  return { ok: false, unsubscribed };
 }
 
 async function sendSubscriptionPrompt(chatId: number, unsubscribed: any[]) {
@@ -307,21 +346,64 @@ function findAnimeFromText(allAnimes: any[], combinedText: string): any {
   return null;
 }
 
-async function telegramApiCall(method: string, payload: any) {
-  try {
-    const res = await fetch(`${TELEGRAM_API}/${method}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!data.ok) fs.appendFileSync('bot_error.log', new Date().toISOString() + ' API_ERROR [' + method + '] ' + JSON.stringify(data) + '\n');
-    return data;
-  } catch (error: any) {
-    console.error(`Telegram API Error [${method}]:`, error?.message || error);
-    fs.appendFileSync('bot_error.log', new Date().toISOString() + ' ERROR [' + method + '] ' + JSON.stringify(error) + '\n');
-    return { ok: false, error };
-  }
+// High-Performance Telegram HTTP Keep-Alive Agent for Sub-50ms AWS Latency
+const botHttpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 60000,
+  maxSockets: 200,
+  maxFreeSockets: 50,
+  timeout: 12000,
+});
+
+export async function telegramApiCall(method: string, payload: any = {}): Promise<any> {
+  return new Promise((resolve) => {
+    try {
+      const bodyStr = JSON.stringify(payload || {});
+      const req = https.request(
+        `${TELEGRAM_API}/${method}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(bodyStr),
+          },
+          agent: botHttpsAgent,
+          timeout: 12000,
+        },
+        (res) => {
+          let rawData = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => {
+            rawData += chunk;
+          });
+          res.on('end', () => {
+            try {
+              const data = JSON.parse(rawData);
+              resolve(data);
+            } catch {
+              resolve({ ok: false, error: 'JSON Parse Error' });
+            }
+          });
+        }
+      );
+
+      req.on('error', (error: any) => {
+        console.error(`Telegram API Network Error [${method}]:`, error?.message || error);
+        resolve({ ok: false, error });
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({ ok: false, error: 'Request Timeout' });
+      });
+
+      req.write(bodyStr);
+      req.end();
+    } catch (e: any) {
+      console.error(`Telegram Api Call exception [${method}]:`, e);
+      resolve({ ok: false, error: e });
+    }
+  });
 }
 
 
@@ -493,6 +575,10 @@ Quyidagi tugmalardan birini tanlang:`;
           { text: '📢 Majburiy obuna', callback_data: 'admin_channels', style: 'primary' },
         ],
         [
+          { text: '🎫 Animem Pass berish', callback_data: 'admin_give_pass', style: 'success' },
+          { text: '🔍 Pass tekshirish', callback_data: 'admin_check_pass', style: 'primary' },
+        ],
+        [
           { text: '📁 Epizod yuklash qo\'llanmasi', callback_data: 'admin_channel_guide', style: 'primary' },
         ],
         [
@@ -640,6 +726,175 @@ async function editOrSendMessage(
     parse_mode: 'HTML',
     reply_markup: replyMarkup,
   });
+}
+
+export async function showUserPassDetails(adminChatId: number, targetId: number, editMessageId?: number) {
+  const passInfo = await getUserPassInfoDb(targetId);
+  const now = Date.now();
+  const isActive = passInfo.isActive;
+  const remainingDays = isActive ? Math.ceil((passInfo.expiresAt - now) / (24 * 60 * 60 * 1000)) : 0;
+  const expFormatted = isActive ? formatUzDateTime(passInfo.expiresAt) : 'Mavjud emas';
+
+  const text = `🔍 <b>Foydalanuvchi Pass Ma'lumotlari:</b>
+
+👤 <b>Telegram ID:</b> <code>${targetId}</code>
+${passInfo.username ? `🌐 <b>Username:</b> @${passInfo.username}\n` : ''}${passInfo.firstName ? `🏷️ <b>Ism:</b> ${escapeHtml(passInfo.firstName)}\n` : ''}💎 <b>Holati:</b> ${isActive ? `🟢 <b>FAOL (VIP)</b>` : `⚪ <b>Faol emas</b>`}
+⏳ <b>Tugash vaqti:</b> <b>${expFormatted}</b>
+🗓️ <b>Qolgan vaqt:</b> ${isActive ? `<b>${remainingDays} kun</b>` : `0 kun`}
+
+Quyidagi amallardan birini tanlashingiz mumkin:`;
+
+  const buttons: any[] = [
+    [
+      { text: isActive ? '➕ Passni uzaytirish' : '🎫 Pass berish', callback_data: `admin_prep_pass_${targetId}` },
+    ],
+  ];
+
+  if (isActive) {
+    buttons.push([
+      { text: '❌ Passni bekor qilish', callback_data: `admin_revokepass_${targetId}` },
+    ]);
+  }
+
+  buttons.push([
+    { text: '◀️ Admin menyusi', callback_data: 'admin_menu' },
+  ]);
+
+  if (editMessageId) {
+    await editOrSendMessage(adminChatId, editMessageId, text, { inline_keyboard: buttons });
+  } else {
+    await telegramApiCall('sendMessage', {
+      chat_id: adminChatId,
+      text,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: buttons },
+    });
+  }
+}
+
+export async function showPassDurationPicker(adminChatId: number, targetId: number, editMessageId?: number) {
+  const passInfo = await getUserPassInfoDb(targetId);
+  const now = Date.now();
+  const statusText = passInfo.isActive
+    ? `🟢 <b>FAOL</b> (${Math.ceil((passInfo.expiresAt - now) / (24 * 60 * 60 * 1000))} kun qolgan)`
+    : `⚪ <b>Faol emas</b>`;
+
+  const text = `🎫 <b>Animem Pass muddatini belgilash</b>
+
+👤 <b>Foydalanuvchi ID:</b> <code>${targetId}</code>
+💎 <b>Hozirgi holat:</b> ${statusText}
+
+Quyidagi tayyor muddatlardan birini tanlang yoki xabarda <b>kunlar sonini</b> (masalan: <code>45</code>) yozib yuboring:`;
+
+  const buttons = [
+    [
+      { text: '⚡ 1 kun', callback_data: `admin_setpass_${targetId}_1` },
+      { text: '🔥 3 kun', callback_data: `admin_setpass_${targetId}_3` },
+      { text: '✨ 7 kun', callback_data: `admin_setpass_${targetId}_7` },
+    ],
+    [
+      { text: '🌟 15 kun', callback_data: `admin_setpass_${targetId}_15` },
+      { text: '❤️ 30 kun (1 oy)', callback_data: `admin_setpass_${targetId}_30` },
+      { text: '🚀 60 kun (2 oy)', callback_data: `admin_setpass_${targetId}_60` },
+    ],
+    [
+      { text: '⚡ 90 kun (3 oy)', callback_data: `admin_setpass_${targetId}_90` },
+      { text: '💎 180 kun (6 oy)', callback_data: `admin_setpass_${targetId}_180` },
+      { text: '👑 365 kun (1 yil)', callback_data: `admin_setpass_${targetId}_365` },
+    ],
+    [
+      { text: '♾️ Umrbod (10 yil)', callback_data: `admin_setpass_${targetId}_3650` },
+    ],
+    [
+      { text: '◀️ Admin menyusi', callback_data: 'admin_menu' },
+      { text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' },
+    ],
+  ];
+
+  adminPassSessions.set(adminChatId, { step: 'duration', targetId });
+
+  if (editMessageId) {
+    await editOrSendMessage(adminChatId, editMessageId, text, { inline_keyboard: buttons });
+  } else {
+    await telegramApiCall('sendMessage', {
+      chat_id: adminChatId,
+      text,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: buttons },
+    });
+  }
+}
+
+export async function executeGrantPass(adminChatId: number, targetId: number, days: number, editMessageId?: number) {
+  adminPassSessions.delete(adminChatId);
+  adminCheckPassSessions.delete(adminChatId);
+
+  const newExpTime = await setUserPassDb(targetId, days);
+  const formattedDate = formatUzDateTime(newExpTime);
+
+  // Send notification to target user
+  let userNotified = false;
+  try {
+    const userRes = await telegramApiCall('sendMessage', {
+      chat_id: targetId,
+      text: `🎉 <b>Tabriklaymiz! Sizga Animem Pass taqdim etildi!</b>
+
+👑 Administrator sizning hisobingizga <b>${days} kunlik Animem Pass (VIP)</b> faollashtirdi!
+
+⏳ <b>Amal qilish muddati:</b> <b>${formattedDate}</b> gacha (Toshkent vaqti)
+
+✨ <b>Siz uchun barcha VIP imkoniyatlar ochildi:</b>
+• 🚫 <b>Mutlaqo reklamasiz</b> tomosha qilish
+• 🔥 <b>1080p Full HD</b> eng yuqori sifat
+• ⚡ Yangi qismlarni <b>1 kun oldin</b> tomosha qilish
+• 🖼️ <b>Rasm orqali qidirish</b> va 🔀 <b>Xronologiya</b> bo'limlari
+• 🚀 <b>Cheksiz tezlikda</b> yuklab olish
+
+<i>Animem Uz bilan maroqli hordiq tilaymiz! 🍿</i>`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🍿 Animelarni tomosha qilish', callback_data: 'btn_main_menu' }],
+          [{ text: '👤 Profilni ko\'rish', callback_data: 'btn_profile' }],
+        ],
+      },
+    });
+    if (userRes && userRes.ok) {
+      userNotified = true;
+    }
+  } catch (err: any) {
+    console.warn('Could not notify target user about Pass:', err.message);
+  }
+
+  const successText = `✅ <b>Animem Pass muvaffaqiyatli taqdim etildi!</b>
+
+👤 <b>Foydalanuvchi Telegram ID:</b> <code>${targetId}</code>
+🗓 <b>Berilgan muddat:</b> <b>${days} kun</b>
+⏳ <b>Yangi tugash vaqti:</b> <b>${formattedDate}</b> (Toshkent vaqti)
+💎 <b>Status:</b> Premium VIP ${E.CHECK}
+
+<i>${userNotified ? '✉️ Foydalanuvchiga Telegram orqali xushxabar yuborildi!' : '⚠️ Foydalanuvchi botni start qilmagani yoki bloklagani sababli unga xabar yetkazilmadi (lekin bazada Pass to\'liq faollashdi).'}</i>`;
+
+  const buttons = [
+    [
+      { text: '🎫 Yana Pass berish', callback_data: 'admin_give_pass' },
+      { text: '🔍 Passni tekshirish', callback_data: `admin_check_user_${targetId}` },
+    ],
+    [
+      { text: '◀️ Admin menyusi', callback_data: 'admin_menu' },
+    ],
+  ];
+
+  if (editMessageId) {
+    await editOrSendMessage(adminChatId, editMessageId, successText, { inline_keyboard: buttons });
+  } else {
+    await telegramApiCall('sendMessage', {
+      chat_id: adminChatId,
+      text: successText,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: buttons },
+    });
+  }
 }
 
 async function handleCallbackQuery(callbackQuery: any) {
@@ -842,6 +1097,67 @@ ${E.VIDEO_MONO} <b>Ko'rilgan animelar:</b> 0 ta
     buttons.push([{ text: '◀️ Admin panel', callback_data: 'admin_menu' }]);
     
     await editOrSendMessage(chatId, messageId, text, { inline_keyboard: buttons });
+  } else if (data === 'admin_give_pass') {
+    adminPassSessions.set(chatId, { step: 'target_id' });
+    const text = `🎫 <b>Animem Pass taqdim etish (Admin)</b>
+
+Foydalanuvchining <b>Telegram ID</b> raqamini kiriting:
+<i>(Masalan: <code>7021152078</code>)</i>
+
+💡 <i>Maslahat: Shuningdek, foydalanuvchi yuborgan xabarni ushbu botga <b>forward</b> qilsangiz ham uning ID si avtomatik olinadi.</i>
+
+⚡ <i>Tezkor buyruq:</i> <code>/givepass [ID] [Kun]</code> yoki <code>/admin pass [ID] [Kun]</code>`;
+
+    await editOrSendMessage(chatId, messageId, text, {
+      inline_keyboard: [
+        [{ text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' }],
+      ],
+    });
+  } else if (data === 'admin_check_pass') {
+    adminCheckPassSessions.add(chatId);
+    const text = `🔍 <b>Foydalanuvchi Pass holatini tekshirish</b>
+
+Foydalanuvchining <b>Telegram ID</b> raqamini kiriting:
+<i>(Masalan: <code>7021152078</code> yoki xabarni forward qiling)</i>`;
+
+    await editOrSendMessage(chatId, messageId, text, {
+      inline_keyboard: [
+        [{ text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' }],
+      ],
+    });
+  } else if (data === 'admin_pass_cancel') {
+    adminPassSessions.delete(chatId);
+    adminCheckPassSessions.delete(chatId);
+    await telegramApiCall('answerCallbackQuery', { callback_query_id: id, text: 'Amal bekor qilindi' });
+    await sendAdminPanel(chatId);
+  } else if (data.startsWith('admin_prep_pass_')) {
+    const targetId = parseInt(data.replace('admin_prep_pass_', ''), 10);
+    if (targetId) {
+      await showPassDurationPicker(chatId, targetId, messageId);
+    }
+  } else if (data.startsWith('admin_setpass_')) {
+    const parts = data.replace('admin_setpass_', '').split('_');
+    const targetId = parseInt(parts[0], 10);
+    const days = parseInt(parts[1], 10);
+    if (targetId && days && days > 0) {
+      await executeGrantPass(chatId, targetId, days, messageId);
+    }
+  } else if (data.startsWith('admin_check_user_')) {
+    const targetId = parseInt(data.replace('admin_check_user_', ''), 10);
+    if (targetId) {
+      await showUserPassDetails(chatId, targetId, messageId);
+    }
+  } else if (data.startsWith('admin_revokepass_')) {
+    const targetId = parseInt(data.replace('admin_revokepass_', ''), 10);
+    if (targetId) {
+      await revokeUserPassDb(targetId);
+      await telegramApiCall('answerCallbackQuery', {
+        callback_query_id: id,
+        text: `✅ ${targetId} foydalanuvchining Pass obunasi bekor qilindi.`,
+        show_alert: true,
+      });
+      await showUserPassDetails(chatId, targetId, messageId);
+    }
   } else if (data === 'btn_pass') {
     const passText = `<b>${E.CARD_MONO} Animem Pass Premium Obunasi</b>
 
@@ -1156,12 +1472,22 @@ Quyidagi tugmalardan birini tanlang:`;
 
     await editOrSendMessage(chatId, messageId, adminText, {
       inline_keyboard: [
-        [{ text: '➕ Anime qo\'shish', callback_data: 'admin_add_anime' }],
         [
-          { text: '📊 Statistika', callback_data: 'admin_stats' },
-          { text: '📋 So\'nggi animelar', callback_data: 'admin_recent' },
+          { text: '➕ Anime qo\'shish', callback_data: 'admin_add_anime' },
+          { text: '📢 Majburiy obuna', callback_data: 'admin_channels' },
         ],
-        [{ text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' }],
+        [
+          { text: '🎫 Animem Pass berish', callback_data: 'admin_give_pass' },
+          { text: '🔍 Pass tekshirish', callback_data: 'admin_check_pass' },
+        ],
+        [
+          { text: '📁 Epizod yuklash', callback_data: 'admin_channel_guide' },
+          { text: '📊 Statistika', callback_data: 'admin_stats' },
+        ],
+        [
+          { text: '📋 So\'nggi animelar', callback_data: 'admin_recent' },
+          { text: '◀️ Asosiy menyu', callback_data: 'btn_main_menu' },
+        ],
       ],
     });
   } else if (data === 'admin_channel_guide') {
@@ -2139,6 +2465,81 @@ async function handleMessage(message: any) {
     }
   }
 
+  // Admin Pass Grant Session Logic
+  if (adminPassSessions.has(chatId) && !text.startsWith('/')) {
+    const session = adminPassSessions.get(chatId)!;
+    if (session.step === 'target_id') {
+      let targetId: number | null = null;
+      if (message.forward_from?.id) {
+        targetId = message.forward_from.id;
+      } else if (text) {
+        const cleaned = text.trim().replace(/[^0-9]/g, '');
+        if (cleaned.length >= 5) {
+          targetId = parseInt(cleaned, 10);
+        }
+      }
+
+      if (!targetId || isNaN(targetId)) {
+        await telegramApiCall('sendMessage', {
+          chat_id: chatId,
+          text: `⚠️ <b>Noto'g'ri Telegram ID!</b>\n\nIltimos, foydalanuvchining faqat raqamlardan iborat Telegram ID sini yuboring (masalan: <code>7021152078</code>) yoki xabarini bu yerga forward qiling:`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[{ text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' }]],
+          },
+        });
+        return;
+      }
+
+      await showPassDurationPicker(chatId, targetId);
+      return;
+    } else if (session.step === 'duration') {
+      const days = parseInt(text.trim(), 10);
+      if (isNaN(days) || days <= 0) {
+        await telegramApiCall('sendMessage', {
+          chat_id: chatId,
+          text: `⚠️ <b>Noto'g'ri kun soni!</b>\n\nIltimos, musbat son yozing (masalan: <code>30</code> yoki <code>90</code>) yoki yuqoridagi tugmalardan birini bosing:`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[{ text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' }]],
+          },
+        });
+        return;
+      }
+
+      await executeGrantPass(chatId, session.targetId!, days);
+      return;
+    }
+  }
+
+  // Admin Pass Check Session Logic
+  if (adminCheckPassSessions.has(chatId) && !text.startsWith('/')) {
+    adminCheckPassSessions.delete(chatId);
+    let targetId: number | null = null;
+    if (message.forward_from?.id) {
+      targetId = message.forward_from.id;
+    } else if (text) {
+      const cleaned = text.trim().replace(/[^0-9]/g, '');
+      if (cleaned.length >= 5) {
+        targetId = parseInt(cleaned, 10);
+      }
+    }
+
+    if (!targetId || isNaN(targetId)) {
+      await telegramApiCall('sendMessage', {
+        chat_id: chatId,
+        text: `⚠️ Noto'g'ri ID kiritildi. Iltimos, raqamlardan iborat Telegram ID kiriting (masalan: <code>7021152078</code>).`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '◀️ Admin menyusi', callback_data: 'admin_menu' }]],
+        },
+      });
+      return;
+    }
+    await showUserPassDetails(chatId, targetId);
+    return;
+  }
+
   // 1. Check if user is currently inside the Admin Wizard
   const session = adminSessions.get(chatId);
   if (session) {
@@ -2440,7 +2841,94 @@ ${E.ARCHIVE_MONO} Janr: ${(savedAnime.genres || []).join(', ')}`;
       });
       return;
     }
+
+    const parts = text.trim().split(/\s+/);
+    // e.g. /admin pass 7021152078 30
+    if (parts[1]?.toLowerCase() === 'pass') {
+      const targetStr = parts[2];
+      const daysStr = parts[3];
+      if (targetStr && daysStr) {
+        const targetId = parseInt(targetStr.replace(/[^0-9]/g, ''), 10);
+        const days = parseInt(daysStr, 10);
+        if (targetId && days && days > 0) {
+          await executeGrantPass(chatId, targetId, days);
+          return;
+        }
+      }
+      adminPassSessions.set(chatId, { step: 'target_id' });
+      await telegramApiCall('sendMessage', {
+        chat_id: chatId,
+        text: `🎫 <b>Animem Pass taqdim etish (Admin)</b>\n\nFoydalanuvchining <b>Telegram ID</b> sini yuboring:\n<i>(Masalan: <code>7021152078</code> yoki xabarini forward qiling)</i>\n\n💡 <i>Tezkor buyruq:</i> <code>/admin pass [ID] [Kun]</code>\nMasalan: <code>/admin pass 7021152078 30</code>`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' }]],
+        },
+      });
+      return;
+    }
+
     await sendAdminPanel(chatId);
+    return;
+  }
+
+  // /givepass command handler
+  if (text.startsWith('/givepass')) {
+    const senderId = message.from?.id || chatId;
+    if (!isAdmin(senderId)) {
+      await telegramApiCall('sendMessage', {
+        chat_id: chatId,
+        text: `⛔ <b>Ruxsat berilmadi!</b>\n\nBu buyruq faqat bot administratorlari uchun.`,
+        parse_mode: 'HTML',
+      });
+      return;
+    }
+
+    const parts = text.trim().split(/\s+/);
+    const targetStr = parts[1];
+    const daysStr = parts[2];
+    if (targetStr && daysStr) {
+      const targetId = parseInt(targetStr.replace(/[^0-9]/g, ''), 10);
+      const days = parseInt(daysStr, 10);
+      if (targetId && days && days > 0) {
+        await executeGrantPass(chatId, targetId, days);
+        return;
+      }
+    }
+
+    adminPassSessions.set(chatId, { step: 'target_id' });
+    await telegramApiCall('sendMessage', {
+      chat_id: chatId,
+      text: `🎫 <b>Animem Pass taqdim etish</b>\n\nFoydalanuvchining <b>Telegram ID</b> sini yuboring:\n<i>(Masalan: <code>7021152078</code> yoki xabarini forward qiling)</i>\n\n💡 <i>Tezkor foydalanish:</i> <code>/givepass [ID] [Kun]</code>\nMasalan: <code>/givepass 7021152078 30</code>`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' }]],
+      },
+    });
+    return;
+  }
+
+  // /checkpass command handler
+  if (text.startsWith('/checkpass')) {
+    const senderId = message.from?.id || chatId;
+    if (!isAdmin(senderId)) return;
+    const parts = text.trim().split(/\s+/);
+    const targetStr = parts[1];
+    if (targetStr) {
+      const targetId = parseInt(targetStr.replace(/[^0-9]/g, ''), 10);
+      if (targetId) {
+        await showUserPassDetails(chatId, targetId);
+        return;
+      }
+    }
+    adminCheckPassSessions.add(chatId);
+    await telegramApiCall('sendMessage', {
+      chat_id: chatId,
+      text: `🔍 Tekshirmoqchi bo'lgan foydalanuvchining <b>Telegram ID</b> sini yuboring:`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '❌ Bekor qilish', callback_data: 'admin_pass_cancel' }]],
+      },
+    });
     return;
   }
 
@@ -2783,7 +3271,32 @@ async function handleChannelPost(post: any) {
   }
 }
 
-// Long polling loop
+// Exported single update processor for both Long Polling and Webhook
+export async function handleSingleTelegramUpdate(update: any) {
+  try {
+    if (update.update_id && update.update_id > lastUpdateId) {
+      lastUpdateId = update.update_id;
+    }
+
+    if (update.message) {
+      await handleMessage(update.message);
+    } else if (update.callback_query) {
+      await handleCallbackQuery(update.callback_query);
+    } else if (update.inline_query) {
+      await handleInlineQuery(update.inline_query);
+    } else if (update.chosen_inline_result) {
+      await handleChosenInlineResult(update.chosen_inline_result);
+    } else if (update.channel_post) {
+      await handleChannelPost(update.channel_post);
+    } else if (update.edited_channel_post) {
+      await handleChannelPost(update.edited_channel_post);
+    }
+  } catch (err: any) {
+    console.error('Update processing error:', err?.message || err);
+  }
+}
+
+// Ultra-fast zero-delay concurrent polling loop
 async function pollUpdates() {
   while (isPolling) {
     try {
@@ -2794,29 +3307,50 @@ async function pollUpdates() {
       });
 
       if (res.ok && Array.isArray(res.result)) {
-        for (const update of res.result) {
-          lastUpdateId = update.update_id;
-
-          if (update.message) {
-            await handleMessage(update.message);
-          } else if (update.channel_post) {
-            await handleChannelPost(update.channel_post);
-          } else if (update.edited_channel_post) {
-            await handleChannelPost(update.edited_channel_post);
-          } else if (update.callback_query) {
-            await handleCallbackQuery(update.callback_query);
-          } else if (update.inline_query) {
-            await handleInlineQuery(update.inline_query);
-          } else if (update.chosen_inline_result) {
-            await handleChosenInlineResult(update.chosen_inline_result);
-          }
+        if (res.result.length > 0) {
+          // Process all updates in parallel concurrently!
+          await Promise.allSettled(res.result.map((update) => handleSingleTelegramUpdate(update)));
         }
+        // Zero delay on successful poll for instant sub-second response
+        continue;
+      } else {
+        // Telegram rate limit or transient error backoff
+        await new Promise((r) => setTimeout(r, 1000));
       }
     } catch (err: any) {
       console.error('Telegram Polling Loop error:', err?.message || err);
+      await new Promise((r) => setTimeout(r, 1500));
     }
-    // Small delay between polls
-    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+export async function setTelegramWebhook(webhookUrl: string) {
+  try {
+    isPolling = false; // Stop polling if webhook is enabled
+    const res = await telegramApiCall('setWebhook', {
+      url: webhookUrl,
+      allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'callback_query', 'inline_query', 'chosen_inline_result'],
+      drop_pending_updates: false,
+      max_connections: 100,
+    });
+    console.log('⚡ Telegram Webhook set result:', res);
+    return res;
+  } catch (err: any) {
+    console.error('Failed to set webhook:', err);
+    return { ok: false, error: err };
+  }
+}
+
+export async function deleteTelegramWebhook() {
+  try {
+    const res = await telegramApiCall('deleteWebhook', { drop_pending_updates: false });
+    if (!isPolling) {
+      isPolling = true;
+      pollUpdates().catch((e) => console.error('Polling restart error:', e));
+    }
+    return res;
+  } catch (err: any) {
+    return { ok: false, error: err };
   }
 }
 
@@ -2842,10 +3376,17 @@ export async function initTelegramBot() {
         ],
       });
 
-      // Start long polling
-      if (!isPolling) {
-        isPolling = true;
-        pollUpdates().catch((e) => console.error('Polling crashed:', e));
+      // Check if Webhook URL is specified (e.g. on AWS VPS: https://bot.animem.uz/api/telegram/webhook)
+      const webhookUrl = process.env.WEBHOOK_URL || process.env.TELEGRAM_WEBHOOK_URL;
+      if (webhookUrl && webhookUrl.startsWith('https://')) {
+        console.log(`🚀 Using Webhook mode for ultra-high speed on AWS: ${webhookUrl}`);
+        await setTelegramWebhook(webhookUrl);
+      } else {
+        // Start high-performance zero-delay concurrent polling
+        if (!isPolling) {
+          isPolling = true;
+          pollUpdates().catch((e) => console.error('Polling crashed:', e));
+        }
       }
 
       return { ok: true, bot: botInfo };

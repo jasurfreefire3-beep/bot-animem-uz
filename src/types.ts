@@ -39,6 +39,9 @@ export interface Anime {
     shareText: string;
   };
   created_at?: string;
+  update_time?: string;
+  season?: string;
+  voice_studio?: string;
   metadata?: Record<string, any>;
 }
 
@@ -54,8 +57,11 @@ export interface DBStatus {
   connected: boolean;
   source: 'postgresql' | 'fallback_cache';
   host?: string;
+  port?: number | string;
+  user?: string;
   database?: string;
   totalAnimes: number;
   message: string;
   lastChecked: string;
+  sqlSchema?: string;
 }

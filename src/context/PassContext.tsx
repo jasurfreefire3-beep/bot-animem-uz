@@ -4,6 +4,7 @@ export interface PassInfo {
   isActive: boolean;
   planId?: string;
   planName?: string;
+  planTitle?: string;
   activatedAt?: string;
   expiresAt?: string;
   userId?: string;

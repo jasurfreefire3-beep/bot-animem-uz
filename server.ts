@@ -18,7 +18,14 @@ import {
   getImageFromDatabase
 } from './server/db.js';
 import { generateTelegramLinks, generateEpisodeTelegramLink, DEFAULT_BOT_USERNAME } from './server/telegram.js';
-import { initTelegramBot, findMatchingAnimeInDb } from './server/bot.js';
+import { 
+  initTelegramBot, 
+  findMatchingAnimeInDb, 
+  handleSingleTelegramUpdate, 
+  setTelegramWebhook, 
+  deleteTelegramWebhook, 
+  telegramApiCall 
+} from './server/bot.js';
 import { 
   generateSitemapXml, 
   generateRobotsTxt, 
@@ -231,6 +238,70 @@ async function startServer() {
     } catch (err: any) {
       console.error('API image upload error:', err);
       res.status(500).json({ error: err.message || 'Rasm yuklashda xatolik' });
+    }
+  });
+
+  // Telegram Bot Webhook endpoint for Sub-30ms AWS Speed
+  app.post('/api/telegram/webhook', (req, res) => {
+    // 1. Instantly acknowledge HTTP 200 to Telegram (< 2ms)
+    res.status(200).json({ ok: true });
+
+    // 2. Concurrently process the update in background event loop
+    if (req.body) {
+      handleSingleTelegramUpdate(req.body).catch((err) => {
+        console.error('Webhook processing error:', err);
+      });
+    }
+  });
+
+  // Get Telegram Webhook status
+  app.get('/api/telegram/webhook-info', async (req, res) => {
+    try {
+      const info = await telegramApiCall('getWebhookInfo');
+      res.json(info);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // Configure Telegram Webhook URL
+  app.post('/api/telegram/set-webhook', async (req, res) => {
+    try {
+      const { url } = req.body || {};
+      if (!url || !url.startsWith('https://')) {
+        return res.status(400).json({ ok: false, error: 'Valid https URL required' });
+      }
+      const result = await setTelegramWebhook(url);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // Delete Webhook (fallback to high-speed long polling)
+  app.post('/api/telegram/delete-webhook', async (req, res) => {
+    try {
+      const result = await deleteTelegramWebhook();
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // Real-time Bot Latency / Speed Benchmark
+  app.get('/api/bot-ping', async (req, res) => {
+    const t0 = performance.now();
+    try {
+      const result = await telegramApiCall('getMe');
+      const latencyMs = Math.round((performance.now() - t0) * 10) / 10;
+      res.json({
+        ok: true,
+        latency_ms: latencyMs,
+        speed_grade: latencyMs < 50 ? '⚡ Ultra Fast (World Class)' : latencyMs < 120 ? '🟢 Fast' : '🟡 Normal',
+        bot: result?.result?.username,
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 
@@ -585,7 +656,10 @@ async function startServer() {
     if (animeMatch) {
       const idOrSlug = animeMatch[1];
       try {
-        const anime = await getAnimeByIdOrSlug(idOrSlug);
+        const anime = await Promise.race([
+          getAnimeByIdOrSlug(idOrSlug),
+          new Promise<any>((resolve) => setTimeout(() => resolve(null), 800)),
+        ]);
         if (anime) {
           const seoTags = generateAnimeSeoTags(anime);
           return injectSeoIntoHtml(rawIndexHtml, seoTags);
@@ -595,7 +669,10 @@ async function startServer() {
       }
     } else if (urlPath === '/' || urlPath.startsWith('/?') || urlPath.startsWith('/pass')) {
       try {
-        const animes = await getAllAnimes();
+        const animes = await Promise.race([
+          getAllAnimes(),
+          new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 800)),
+        ]);
         const homeSeoTags = generateHomeSeoTags(animes);
         return injectSeoIntoHtml(rawIndexHtml, homeSeoTags);
       } catch (e) {
@@ -638,17 +715,43 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     const indexHtmlPath = path.join(distPath, 'index.html');
-    app.use(express.static(distPath, { index: false }));
+    const rootHtmlPath = path.join(process.cwd(), 'index.html');
+
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath, { index: false }));
+    }
 
     app.get('*', async (req, res) => {
       try {
-        const rawHtml = fs.readFileSync(indexHtmlPath, 'utf-8');
+        const targetHtml = fs.existsSync(indexHtmlPath) ? indexHtmlPath : rootHtmlPath;
+        if (!fs.existsSync(targetHtml)) {
+          return res.status(200).send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Animem</title><meta charset="utf-8"/></head>
+            <body style="background:#090514;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+              <div style="text-align:center;padding:20px;">
+                <h1 style="color:#a855f7;font-size:24px;">Animem Uz Platform</h1>
+                <p style="color:#c084fc;">Sayt ishlab turibdi. Ishga tushirish uchun build qiling:</p>
+                <code style="background:#1e1438;padding:8px 16px;border-radius:8px;color:#38bdf8;">npm run build</code>
+              </div>
+            </body>
+            </html>
+          `);
+        }
+        const rawHtml = fs.readFileSync(targetHtml, 'utf-8');
         const url = req.originalUrl || req.url;
         const finalHtml = await renderHtmlWithSeo(url, rawHtml);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(finalHtml);
       } catch (err) {
-        res.sendFile(indexHtmlPath);
+        if (fs.existsSync(indexHtmlPath)) {
+          res.sendFile(indexHtmlPath);
+        } else if (fs.existsSync(rootHtmlPath)) {
+          res.sendFile(rootHtmlPath);
+        } else {
+          res.status(500).send('HTML fayli topilmadi.');
+        }
       }
     });
   }

@@ -590,6 +590,63 @@ export async function setUserPassDb(telegramId: number | string, days: number, f
   return newExpTime;
 }
 
+export async function getUserPassInfoDb(telegramId: number | string): Promise<{
+  isActive: boolean;
+  expiresAt: number;
+  firstName?: string;
+  username?: string;
+}> {
+  const numId = Number(telegramId);
+  let expiresAt = memoryPasses.get(numId) || 0;
+  let firstName: string | undefined;
+  let username: string | undefined;
+
+  try {
+    if (isConnected) {
+      const p = getPool();
+      const res = await p.query('SELECT first_name, username, pass_expires_at FROM users WHERE telegram_id = $1', [numId]);
+      if (res.rows.length > 0) {
+        firstName = res.rows[0].first_name || undefined;
+        username = res.rows[0].username || undefined;
+        if (res.rows[0].pass_expires_at) {
+          const dbExp = new Date(res.rows[0].pass_expires_at).getTime();
+          if (dbExp > expiresAt) {
+            expiresAt = dbExp;
+            memoryPasses.set(numId, expiresAt);
+          }
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('getUserPassInfoDb error:', e.message);
+  }
+
+  return {
+    isActive: expiresAt > Date.now(),
+    expiresAt,
+    firstName,
+    username,
+  };
+}
+
+export async function revokeUserPassDb(telegramId: number | string): Promise<boolean> {
+  const numId = Number(telegramId);
+  memoryPasses.delete(numId);
+  try {
+    if (isConnected) {
+      const p = getPool();
+      await p.query(
+        `UPDATE users SET pass_expires_at = NOW() - INTERVAL '1 second' WHERE telegram_id = $1`,
+        [numId]
+      );
+      return true;
+    }
+  } catch (e: any) {
+    console.warn('revokeUserPassDb error:', e.message);
+  }
+  return true;
+}
+
 export async function getTotalActivePasses(): Promise<number> {
   let count = 0;
   try {

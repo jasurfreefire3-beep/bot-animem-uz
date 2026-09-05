@@ -17,7 +17,7 @@ export default function AdminPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<Partial<Anime>>({});
+  const [formData, setFormData] = useState<any>({});
 
   useEffect(() => {
     // Check lock status on load
